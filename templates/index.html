@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTG Tagger</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+        .container { max-width: 720px; margin: 0 auto; }
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 0.25rem;
+            color: #c9a959;
+        }
+        .subtitle {
+            color: #888;
+            margin-bottom: 2rem;
+            font-size: 0.9rem;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.4rem;
+            font-size: 0.9rem;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 0.6rem 0.8rem;
+            border: 1px solid #333;
+            border-radius: 6px;
+            background: #16213e;
+            color: #e0e0e0;
+            font-family: inherit;
+            font-size: 0.95rem;
+        }
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #c9a959;
+        }
+        textarea { resize: vertical; min-height: 160px; }
+        .field { margin-bottom: 1.2rem; }
+        button {
+            background: #c9a959;
+            color: #1a1a2e;
+            border: none;
+            padding: 0.7rem 1.6rem;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        button:hover { background: #d4b96a; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .loading {
+            display: none;
+            margin-top: 1rem;
+            color: #c9a959;
+        }
+        .loading.visible { display: block; }
+        .error {
+            display: none;
+            margin-top: 1rem;
+            padding: 0.8rem;
+            background: #3a1a1a;
+            border: 1px solid #a33;
+            border-radius: 6px;
+            color: #f88;
+        }
+        .error.visible { display: block; }
+        .results {
+            display: none;
+            margin-top: 1.5rem;
+        }
+        .results.visible { display: block; }
+        .results h2 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: #c9a959;
+        }
+        pre {
+            background: #16213e;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 1rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MTG Tagger</h1>
+        <p class="subtitle">Analyze Magic: The Gathering cards for Commander mechanics and tier ratings</p>
+
+        <div class="field">
+            <label for="api-key">Anthropic API Key</label>
+            <input type="password" id="api-key" placeholder="sk-ant-...">
+        </div>
+
+        <div class="field">
+            <label for="card-data">Card Data</label>
+            <textarea id="card-data" placeholder="Name: Sol Ring. Text: {T}: Add {C}{C}.
+Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to its owner's hand. Overload {6}{U}"></textarea>
+        </div>
+
+        <button id="submit-btn">Analyze Cards</button>
+
+        <div class="loading" id="loading">Analyzing cards...</div>
+        <div class="error" id="error"></div>
+        <div class="results" id="results">
+            <h2>Results</h2>
+            <pre id="results-content"></pre>
+        </div>
+    </div>
+
+    <script>
+        const btn = document.getElementById("submit-btn");
+        const loading = document.getElementById("loading");
+        const errorEl = document.getElementById("error");
+        const resultsEl = document.getElementById("results");
+        const resultsContent = document.getElementById("results-content");
+        const apiKeyField = document.getElementById("api-key");
+        const apiKeyContainer = apiKeyField.closest(".field");
+        let hasEnvKey = false;
+
+        fetch("/config")
+            .then(res => res.json())
+            .then(data => {
+                hasEnvKey = data.has_env_key;
+                if (hasEnvKey) {
+                    apiKeyContainer.style.display = "none";
+                }
+            });
+
+        btn.addEventListener("click", async () => {
+            const apiKey = apiKeyField.value.trim();
+            const cardData = document.getElementById("card-data").value.trim();
+
+            if (!hasEnvKey && !apiKey) {
+                showError("Please fill in both the API key and card data.");
+                return;
+            }
+            if (!cardData) {
+                showError("Please enter card data.");
+                return;
+            }
+
+            btn.disabled = true;
+            loading.classList.add("visible");
+            errorEl.classList.remove("visible");
+            resultsEl.classList.remove("visible");
+
+            const body = { card_data: cardData };
+            if (apiKey) body.api_key = apiKey;
+
+            try {
+                const res = await fetch("/analyze", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    showError(data.error || "An unexpected error occurred.");
+                    return;
+                }
+
+                const output = typeof data.result === "string"
+                    ? data.result
+                    : JSON.stringify(data.result, null, 2);
+                resultsContent.textContent = output;
+                resultsEl.classList.add("visible");
+            } catch (e) {
+                showError("Network error: could not reach the server.");
+            } finally {
+                btn.disabled = false;
+                loading.classList.remove("visible");
+            }
+        });
+
+        function showError(msg) {
+            errorEl.textContent = msg;
+            errorEl.classList.add("visible");
+        }
+    </script>
+</body>
+</html>
