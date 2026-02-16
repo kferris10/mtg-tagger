@@ -53,8 +53,16 @@ def analyze():
 
     raw_text = message.content[0].text
 
+    # Strip markdown code fences if present (e.g. ```json\n...\n```)
+    text = raw_text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1]  # remove opening ```json line
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+
     try:
-        result = json.loads(raw_text)
+        result = json.loads(text)
     except json.JSONDecodeError:
         result = raw_text
 

@@ -94,6 +94,62 @@
             font-size: 0.85rem;
             line-height: 1.5;
         }
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+        }
+        .results-table th,
+        .results-table td {
+            text-align: left;
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid #333;
+        }
+        .results-table th {
+            color: #c9a959;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .results-table td { font-size: 0.95rem; }
+        .sort-header {
+            cursor: pointer;
+            user-select: none;
+        }
+        .sort-header:hover { color: #d4b96a; }
+        .sort-arrow {
+            font-size: 0.75rem;
+            margin-left: 0.3rem;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-right: 0.4rem;
+            margin-bottom: 0.3rem;
+        }
+        .badge-s  { background: #a08520; color: #fff; }
+        .badge-a  { background: #2e7d32; color: #fff; }
+        .badge-b  { background: #1565c0; color: #fff; }
+        .badge-c  { background: #555;    color: #ccc; }
+        .badge-d  { background: #8b1a1a; color: #fff; }
+        .muted { color: #666; font-style: italic; font-size: 0.9rem; }
+        .raw-toggle {
+            background: none;
+            border: none;
+            color: #c9a959;
+            cursor: pointer;
+            font-size: 0.85rem;
+            padding: 0;
+            font-weight: 600;
+            margin-top: 1rem;
+            display: inline-block;
+        }
+        .raw-toggle:hover { text-decoration: underline; background: none; }
+        .raw-json { display: none; margin-top: 0.5rem; }
+        .raw-json.visible { display: block; }
     </style>
 </head>
 <body>
@@ -118,7 +174,11 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
         <div class="error" id="error"></div>
         <div class="results" id="results">
             <h2>Results</h2>
-            <pre id="results-content"></pre>
+            <div id="results-table"></div>
+            <button class="raw-toggle" id="raw-toggle">Show raw JSON</button>
+            <div class="raw-json" id="raw-json">
+                <pre id="results-content"></pre>
+            </div>
         </div>
     </div>
 
@@ -128,9 +188,28 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
         const errorEl = document.getElementById("error");
         const resultsEl = document.getElementById("results");
         const resultsContent = document.getElementById("results-content");
+        const resultsTable = document.getElementById("results-table");
+        const rawToggle = document.getElementById("raw-toggle");
+        const rawJson = document.getElementById("raw-json");
         const apiKeyField = document.getElementById("api-key");
         const apiKeyContainer = apiKeyField.closest(".field");
         let hasEnvKey = false;
+
+        const MECHANIC_LABELS = {
+            ramp: "Ramp",
+            card_advantage: "Card Advantage",
+            targeted_disruption: "Targeted Disruption",
+            mass_disruption: "Mass Disruption",
+            go_wide: "Go Wide",
+            anthem: "Anthem",
+            overrun: "Overrun"
+        };
+
+        rawToggle.addEventListener("click", () => {
+            rawJson.classList.toggle("visible");
+            rawToggle.textContent = rawJson.classList.contains("visible")
+                ? "Hide raw JSON" : "Show raw JSON";
+        });
 
         fetch("/config")
             .then(res => res.json())
@@ -140,6 +219,129 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                     apiKeyContainer.style.display = "none";
                 }
             });
+
+        function esc(str) {
+            const d = document.createElement("div");
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        function tierBadgeClass(tier) {
+            const t = tier.toLowerCase();
+            if (t.startsWith("s"))  return "badge-s";
+            if (t.startsWith("a"))  return "badge-a";
+            if (t.startsWith("b"))  return "badge-b";
+            if (t.startsWith("c"))  return "badge-c";
+            if (t.startsWith("d"))  return "badge-d";
+            return "badge-c";
+        }
+
+        function tierRank(tier) {
+            const t = tier.toLowerCase().replace(/[- ]?tier$/i, "").trim();
+            const ranks = {"s+": 0, "s": 1, "a": 2, "b": 3, "c": 4, "d": 5};
+            return ranks[t] !== undefined ? ranks[t] : 6;
+        }
+
+        function renderResults(data) {
+            // If the API returned a plain string, show it as raw text
+            if (typeof data === "string") {
+                try {
+                    data = JSON.parse(data);
+                } catch {
+                    resultsTable.innerHTML = `<pre>${data}</pre>`;
+                    resultsContent.textContent = data;
+                    rawJson.classList.remove("visible");
+                    rawToggle.textContent = "Show raw JSON";
+                    return;
+                }
+            }
+            const result = data;
+
+            // Build flat rows array
+            const rows = [];
+            let noMechCount = 0;
+            for (const [cardName, mechanics] of Object.entries(result)) {
+                const mechEntries = Object.entries(mechanics);
+                if (mechEntries.length === 0) {
+                    noMechCount++;
+                } else {
+                    for (const [mech, tier] of mechEntries) {
+                        rows.push({
+                            card: cardName,
+                            mechanic: mech,
+                            mechanicLabel: MECHANIC_LABELS[mech] || mech,
+                            tier: tier,
+                            tierRankVal: tierRank(tier)
+                        });
+                    }
+                }
+            }
+
+            // Sort state
+            let sortCol = "tier";
+            let sortAsc = true; // ascending tierRank = strongest first
+
+            function sortRows() {
+                rows.sort((a, b) => {
+                    let cmp = 0;
+                    if (sortCol === "card") {
+                        cmp = a.card.localeCompare(b.card);
+                    } else if (sortCol === "mechanic") {
+                        cmp = a.mechanicLabel.localeCompare(b.mechanicLabel);
+                    } else {
+                        cmp = a.tierRankVal - b.tierRankVal;
+                    }
+                    return sortAsc ? cmp : -cmp;
+                });
+            }
+
+            function renderTable() {
+                sortRows();
+                const arrow = sortAsc ? "▲" : "▼";
+                const thCard = `Card${sortCol === "card" ? ' <span class="sort-arrow">' + arrow + '</span>' : ''}`;
+                const thMech = `Mechanic${sortCol === "mechanic" ? ' <span class="sort-arrow">' + arrow + '</span>' : ''}`;
+                const thTier = `Tier${sortCol === "tier" ? ' <span class="sort-arrow">' + arrow + '</span>' : ''}`;
+
+                let html = '<table class="results-table"><thead><tr>';
+                html += `<th class="sort-header" data-col="card">${thCard}</th>`;
+                html += `<th class="sort-header" data-col="mechanic">${thMech}</th>`;
+                html += `<th class="sort-header" data-col="tier">${thTier}</th>`;
+                html += '</tr></thead><tbody>';
+
+                for (const row of rows) {
+                    const cls = tierBadgeClass(row.tier);
+                    html += `<tr><td>${esc(row.card)}</td><td>${esc(row.mechanicLabel)}</td><td><span class="badge ${cls}">${esc(row.tier)}</span></td></tr>`;
+                }
+                html += '</tbody></table>';
+
+                if (noMechCount > 0) {
+                    html += `<p class="muted">${noMechCount} card${noMechCount === 1 ? '' : 's'} had no tagged mechanics</p>`;
+                }
+
+                resultsTable.innerHTML = html;
+
+                // Attach sort handlers
+                resultsTable.querySelectorAll(".sort-header").forEach(th => {
+                    th.addEventListener("click", () => {
+                        const col = th.getAttribute("data-col");
+                        if (sortCol === col) {
+                            sortAsc = !sortAsc;
+                        } else {
+                            sortCol = col;
+                            sortAsc = true;
+                        }
+                        renderTable();
+                    });
+                });
+            }
+
+            renderTable();
+
+            // Raw JSON
+            resultsContent.textContent = JSON.stringify(result, null, 2);
+            rawJson.classList.remove("visible");
+            rawToggle.textContent = "Show raw JSON";
+        }
 
         btn.addEventListener("click", async () => {
             const apiKey = apiKeyField.value.trim();
@@ -176,13 +378,14 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                     return;
                 }
 
-                const output = typeof data.result === "string"
-                    ? data.result
-                    : JSON.stringify(data.result, null, 2);
-                resultsContent.textContent = output;
+                renderResults(data.result);
                 resultsEl.classList.add("visible");
             } catch (e) {
-                showError("Network error: could not reach the server.");
+                if (e instanceof TypeError || e instanceof SyntaxError) {
+                    showError("Error rendering results: " + e.message);
+                } else {
+                    showError("Network error: could not reach the server.");
+                }
             } finally {
                 btn.disabled = false;
                 loading.classList.remove("visible");
