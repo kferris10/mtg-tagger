@@ -231,6 +231,30 @@
             color: #c9a959;
         }
         .muted { color: #666; font-style: italic; font-size: 0.9rem; }
+
+        /* Card detail panel */
+        .card-detail { margin-top: 1.5rem; display: none; }
+        .card-detail.visible { display: block; }
+        #card-select {
+            width: 100%;
+            padding: 0.6rem 0.8rem;
+            border: 1px solid #333;
+            border-radius: 6px;
+            background: #16213e;
+            color: #e0e0e0;
+            font-family: inherit;
+            font-size: 0.95rem;
+            margin-bottom: 0.75rem;
+        }
+        #card-select:focus { outline: none; border-color: #c9a959; }
+        .card-rating-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid #2a2a3e;
+        }
+        .card-no-mechanics { color: #666; font-style: italic; font-size: 0.9rem; padding: 0.4rem 0; }
         .raw-toggle {
             background: none;
             border: none;
@@ -268,6 +292,14 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
 
             <button id="submit-btn">Analyze Cards</button>
             <div class="loading-bar" id="loading"></div>
+
+            <div class="card-detail" id="card-detail">
+                <label for="card-select">Card Details</label>
+                <select id="card-select">
+                    <option value="">Select a card...</option>
+                </select>
+                <div id="card-ratings"></div>
+            </div>
         </div>
 
         <div class="right-panel" id="right-panel">
@@ -301,7 +333,12 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
         const rightPanel = document.getElementById("right-panel");
         const emptyState = document.getElementById("empty-state");
 
+        const cardDetail = document.getElementById("card-detail");
+        const cardSelect = document.getElementById("card-select");
+        const cardRatings = document.getElementById("card-ratings");
+
         let errorTimer = null;
+        let lastResult = null;
 
         const MECHANIC_LABELS = {
             ramp: "Ramp",
@@ -312,6 +349,28 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
             anthem: "Anthem",
             overrun: "Overrun"
         };
+
+        function renderCardDetail(cardName) {
+            const mechanics = lastResult[cardName];
+            if (!mechanics) { cardRatings.innerHTML = ""; return; }
+            const entries = Object.entries(mechanics);
+            if (entries.length === 0) {
+                cardRatings.innerHTML = '<p class="card-no-mechanics">No tagged mechanics</p>';
+                return;
+            }
+            let html = "";
+            for (const [mech, tier] of entries) {
+                const label = MECHANIC_LABELS[mech] || mech;
+                const cls = tierBadgeClass(tier);
+                html += `<div class="card-rating-row"><span>${esc(label)}</span><span class="badge ${cls}">${esc(tier)}</span></div>`;
+            }
+            cardRatings.innerHTML = html;
+        }
+
+        cardSelect.addEventListener("change", () => {
+            if (cardSelect.value) renderCardDetail(cardSelect.value);
+            else cardRatings.innerHTML = "";
+        });
 
         rawToggle.addEventListener("click", () => {
             rawJson.classList.toggle("visible");
@@ -460,6 +519,19 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
             resultsContent.textContent = JSON.stringify(result, null, 2);
             rawJson.classList.remove("visible");
             rawToggle.textContent = "Show raw JSON";
+
+            // Card detail panel
+            lastResult = result;
+            const cardNames = Object.keys(result);
+            cardSelect.innerHTML = '<option value="">Select a card...</option>';
+            for (const name of cardNames) {
+                cardSelect.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
+            }
+            if (cardNames.length > 0) {
+                cardSelect.value = cardNames[0];
+                renderCardDetail(cardNames[0]);
+            }
+            cardDetail.classList.add("visible");
         }
 
         btn.addEventListener("click", async () => {
