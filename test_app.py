@@ -11,9 +11,7 @@ def _make_app(env_key=""):
     """Import app.py with a controlled ANTHROPIC_API_KEY env var."""
     import app as app_module
 
-    with patch.dict("os.environ", {"ANTHROPIC_API_KEY": env_key}):
-        importlib.reload(app_module)
-
+    importlib.reload(app_module)
     app_module.app.config["TESTING"] = True
     return app_module.app, app_module
 
@@ -25,15 +23,46 @@ def _mock_anthropic_response(text):
     return message
 
 
-# ---------- POST /analyze — env var required ----------
+# ---------- POST /analyze — authentication ----------
 
 
-class TestAnalyzeEnvKey:
-    """Verify that /analyze requires the ANTHROPIC_API_KEY env var."""
+class TestAnalyzeAuthentication:
+    """Verify that /analyze handles API keys from multiple sources with correct priority."""
 
     @patch("app.anthropic.Anthropic")
-    def test_uses_env_key(self, MockAnthropic):
+    def test_uses_user_provided_key(self, MockAnthropic):
+        """User-provided API key should be used when present."""
         app, _ = _make_app(env_key="sk-ant-env-key")
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response(
+            '{"cards": []}'
+        )
+
+        with app.test_client() as c:
+            resp = c.post(
+                "/analyze",
+                json={
+                    "card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}.",
+                    "api_key": "sk-ant-user-key"
+                },
+            )
+            assert resp.status_code == 200
+            # Should use user-provided key, not env key
+            MockAnthropic.assert_called_once_with(api_key="sk-ant-user-key")
+
+    @patch("app.anthropic.Anthropic")
+    @patch("app.os.environ.get")
+    def test_uses_env_key_as_fallback(self, mock_env_get, MockAnthropic):
+        """Env var API key should be used when no user key provided."""
+        # Mock environment to return specific key
+        def env_side_effect(key, default=""):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-ant-env-key"
+            return default
+        mock_env_get.side_effect = env_side_effect
+
+        app, _ = _make_app()
         mock_client = MagicMock()
         MockAnthropic.return_value = mock_client
         mock_client.messages.create.return_value = _mock_anthropic_response(
@@ -48,15 +77,77 @@ class TestAnalyzeEnvKey:
             assert resp.status_code == 200
             MockAnthropic.assert_called_once_with(api_key="sk-ant-env-key")
 
-    def test_returns_500_when_no_env_key(self):
-        app, _ = _make_app(env_key="")
+    @patch("app.anthropic.Anthropic")
+    def test_user_key_overrides_env_key(self, MockAnthropic):
+        """User-provided key should take priority over env var."""
+        app, _ = _make_app(env_key="sk-ant-env-key")
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response(
+            '{"cards": []}'
+        )
+
+        with app.test_client() as c:
+            resp = c.post(
+                "/analyze",
+                json={
+                    "card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}.",
+                    "api_key": "sk-ant-override-key"
+                },
+            )
+            assert resp.status_code == 200
+            # Should use user key, not env var
+            MockAnthropic.assert_called_once_with(api_key="sk-ant-override-key")
+
+    @patch("app.os.environ.get")
+    def test_returns_401_when_no_api_key(self, mock_env_get):
+        """Should return 401 when no API key provided from any source."""
+        # Mock environment to return empty string for API key
+        def env_side_effect(key, default=""):
+            if key == "ANTHROPIC_API_KEY":
+                return ""
+            return default
+        mock_env_get.side_effect = env_side_effect
+
+        app, _ = _make_app()
         with app.test_client() as c:
             resp = c.post(
                 "/analyze",
                 json={"card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}."},
             )
-            assert resp.status_code == 500
-            assert "ANTHROPIC_API_KEY" in resp.get_json()["error"]
+            assert resp.status_code == 401
+            error = resp.get_json()["error"]
+            assert "No API key provided" in error
+            assert "ANTHROPIC_API_KEY" in error
+
+    @patch("app.os.environ.get")
+    @patch("app.anthropic.Anthropic")
+    def test_empty_user_key_falls_back_to_env(self, MockAnthropic, mock_env_get):
+        """Empty string for user key should fall back to env var."""
+        # Mock environment to return specific key
+        def env_side_effect(key, default=""):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-ant-env-key"
+            return default
+        mock_env_get.side_effect = env_side_effect
+
+        app, _ = _make_app()
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response(
+            '{"cards": []}'
+        )
+
+        with app.test_client() as c:
+            resp = c.post(
+                "/analyze",
+                json={
+                    "card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}.",
+                    "api_key": ""  # Empty string should be treated as not provided
+                },
+            )
+            assert resp.status_code == 200
+            MockAnthropic.assert_called_once_with(api_key="sk-ant-env-key")
 
 
 # ---------- POST /analyze — validation ----------
@@ -88,12 +179,13 @@ class TestIndexRoute:
             assert resp.status_code == 200
             assert b"MTG Tagger" in resp.data
 
-    def test_index_has_no_api_key_field(self):
-        """The page should not contain an API key input field."""
+    def test_index_has_api_key_field(self):
+        """The page should contain an API key input field."""
         app, _ = _make_app(env_key="")
         with app.test_client() as c:
             resp = c.get("/")
-            assert b'id="api-key"' not in resp.data
+            assert b'id="api-key"' in resp.data
+            assert b'type="password"' in resp.data
 
     def test_index_contains_results_structure(self):
         """The page should contain the dashboard layout and sortable results table UI elements."""

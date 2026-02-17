@@ -78,6 +78,13 @@
         button:hover { background: #d4b96a; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+        .optional-label {
+            color: #888;
+            font-size: 0.8rem;
+            font-weight: 400;
+            font-style: italic;
+        }
+
         /* Loading bar */
         .loading-bar {
             height: 3px;
@@ -283,6 +290,11 @@
         <div class="left-panel">
             <h1>MTG Tagger</h1>
             <p class="subtitle">Analyze Magic: The Gathering cards for Commander mechanics and tier ratings</p>
+
+            <div class="field">
+                <label for="api-key">Anthropic API Key <span class="optional-label">(optional - uses env var if blank)</span></label>
+                <input type="password" id="api-key" placeholder="sk-ant-...">
+            </div>
 
             <div class="field">
                 <label for="card-data">Card Data</label>
@@ -536,6 +548,7 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
 
         btn.addEventListener("click", async () => {
             const cardData = document.getElementById("card-data").value.trim();
+            const apiKey = document.getElementById("api-key").value.trim();
 
             if (!cardData) {
                 showError("Please enter card data.");
@@ -548,7 +561,10 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
             dismissError();
             resultsEl.classList.remove("visible");
 
-            const body = { card_data: cardData };
+            const body = {
+                card_data: cardData,
+                api_key: apiKey || undefined  // Only include if provided
+            };
 
             try {
                 const res = await fetch("/analyze", {
@@ -560,6 +576,10 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                 const data = await res.json();
 
                 if (!res.ok) {
+                    if (res.status === 401) {
+                        showError("Authentication required. Please enter an API key or sign in with OAuth.");
+                        return;
+                    }
                     showError(data.error || "An unexpected error occurred.");
                     return;
                 }
