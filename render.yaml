@@ -3,8 +3,8 @@ services:
     name: mtg-tagger
     runtime: python
     plan: free
-    buildCommand: pip install uv && uv pip install --system .
-    startCommand: python -m gunicorn app:app
+    buildCommand: pip install .
+    startCommand: gunicorn app:app
     envVars:
       - key: FLASK_ENV
         value: production
