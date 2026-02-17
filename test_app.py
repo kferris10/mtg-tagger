@@ -291,3 +291,136 @@ class TestAnalyzeResponseShape:
             data = resp.get_json()
             assert isinstance(data["result"], str)
             assert "could not parse" in data["result"]
+
+
+# ---------- POST /analyze — custom mechanics ----------
+
+
+class TestAnalyzeCustomMechanics:
+    """Verify /analyze accepts and uses custom mechanics."""
+
+    @patch("app.os.environ.get")
+    @patch("app.anthropic.Anthropic")
+    def test_uses_custom_mechanics(self, MockAnthropic, mock_env_get):
+        """Custom mechanics should be substituted into prompt."""
+        def env_side_effect(key, default=""):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-ant-test-key"
+            return default
+        mock_env_get.side_effect = env_side_effect
+
+        app, app_module = _make_app()
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response(
+            '{"Sol Ring": {"custom_mech": "S+ Tier"}}'
+        )
+
+        custom_mechanics = "- custom_mech: This is a custom mechanic"
+
+        with app.test_client() as c:
+            resp = c.post(
+                "/analyze",
+                json={
+                    "card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}.",
+                    "mechanics": custom_mechanics
+                },
+            )
+            assert resp.status_code == 200
+
+            # Verify the prompt contains custom mechanics
+            call_args = mock_client.messages.create.call_args
+            prompt = call_args.kwargs["messages"][0]["content"]
+            assert "custom_mech: This is a custom mechanic" in prompt
+            assert "MECHANICS_PLACEHOLDER" not in prompt
+
+    @patch("app.os.environ.get")
+    @patch("app.anthropic.Anthropic")
+    def test_uses_default_mechanics_when_not_provided(self, MockAnthropic, mock_env_get):
+        """Should use DEFAULT_MECHANICS when mechanics not in request."""
+        def env_side_effect(key, default=""):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-ant-test-key"
+            return default
+        mock_env_get.side_effect = env_side_effect
+
+        app, app_module = _make_app()
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response('{"cards": []}')
+
+        with app.test_client() as c:
+            resp = c.post(
+                "/analyze",
+                json={"card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}."},
+            )
+            assert resp.status_code == 200
+
+            # Verify default mechanics are used
+            call_args = mock_client.messages.create.call_args
+            prompt = call_args.kwargs["messages"][0]["content"]
+            assert "ramp:" in prompt
+            assert "card_advantage:" in prompt
+            assert "MECHANICS_PLACEHOLDER" not in prompt
+
+    @patch("app.os.environ.get")
+    @patch("app.anthropic.Anthropic")
+    def test_empty_mechanics_falls_back_to_defaults(self, MockAnthropic, mock_env_get):
+        """Empty string for mechanics should fall back to defaults."""
+        def env_side_effect(key, default=""):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-ant-test-key"
+            return default
+        mock_env_get.side_effect = env_side_effect
+
+        app, app_module = _make_app()
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response('{"cards": []}')
+
+        with app.test_client() as c:
+            resp = c.post(
+                "/analyze",
+                json={
+                    "card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}.",
+                    "mechanics": ""  # Empty string should use defaults
+                },
+            )
+            assert resp.status_code == 200
+
+            # Verify default mechanics are used
+            call_args = mock_client.messages.create.call_args
+            prompt = call_args.kwargs["messages"][0]["content"]
+            assert "ramp:" in prompt
+            assert "card_advantage:" in prompt
+
+
+# ---------- GET /api/default-mechanics ----------
+
+
+class TestDefaultMechanicsEndpoint:
+    """Test /api/default-mechanics endpoint."""
+
+    def test_returns_default_mechanics(self):
+        """Should return default mechanics JSON."""
+        app, _ = _make_app()
+        with app.test_client() as c:
+            resp = c.get("/api/default-mechanics")
+            assert resp.status_code == 200
+            data = resp.get_json()
+            assert "mechanics" in data
+            assert "ramp:" in data["mechanics"]
+            assert "card_advantage:" in data["mechanics"]
+            assert "targeted_disruption:" in data["mechanics"]
+
+    def test_mechanics_format(self):
+        """Mechanics should be in bullet list format."""
+        app, _ = _make_app()
+        with app.test_client() as c:
+            resp = c.get("/api/default-mechanics")
+            data = resp.get_json()
+            mechanics = data["mechanics"]
+            # Should start with bullet point
+            assert mechanics.startswith("- ")
+            # Should contain multiple mechanics
+            assert mechanics.count("\n- ") >= 5

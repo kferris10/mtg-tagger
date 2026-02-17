@@ -64,6 +64,7 @@
             border-color: #c9a959;
         }
         textarea { resize: vertical; min-height: 160px; }
+        #mechanics { min-height: 200px; font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: 0.85rem; }
         .field { margin-bottom: 1.2rem; }
         button {
             background: #c9a959;
@@ -297,6 +298,14 @@
             </div>
 
             <div class="field">
+                <label for="mechanics">
+                    Mechanics to Tag
+                    <span class="optional-label">(edit or add your own)</span>
+                </label>
+                <textarea id="mechanics" placeholder="- mechanic_name: Description..."></textarea>
+            </div>
+
+            <div class="field">
                 <label for="card-data">Card Data</label>
                 <textarea id="card-data" placeholder="Name: Sol Ring. Text: {T}: Add {C}{C}.
 Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to its owner's hand. Overload {6}{U}"></textarea>
@@ -352,15 +361,29 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
         let errorTimer = null;
         let lastResult = null;
 
-        const MECHANIC_LABELS = {
-            ramp: "Ramp",
-            card_advantage: "Card Advantage",
-            targeted_disruption: "Targeted Disruption",
-            mass_disruption: "Mass Disruption",
-            go_wide: "Go Wide",
-            anthem: "Anthem",
-            overrun: "Overrun"
-        };
+        // Generate display label from mechanic key
+        function formatMechanicLabel(mechKey) {
+            // Use predefined label if exists, otherwise format the key
+            const PREDEFINED_LABELS = {
+                ramp: "Ramp",
+                card_advantage: "Card Advantage",
+                targeted_disruption: "Targeted Disruption",
+                mass_disruption: "Mass Disruption",
+                go_wide: "Go Wide",
+                anthem: "Anthem",
+                overrun: "Overrun"
+            };
+
+            if (PREDEFINED_LABELS[mechKey]) {
+                return PREDEFINED_LABELS[mechKey];
+            }
+
+            // Fallback: convert snake_case to Title Case
+            return mechKey
+                .split('_')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ');
+        }
 
         function renderCardDetail(cardName) {
             const mechanics = lastResult[cardName];
@@ -372,7 +395,7 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
             }
             let html = "";
             for (const [mech, tier] of entries) {
-                const label = MECHANIC_LABELS[mech] || mech;
+                const label = formatMechanicLabel(mech);
                 const cls = tierBadgeClass(tier);
                 html += `<div class="card-rating-row"><span>${esc(label)}</span><span class="badge ${cls}">${esc(tier)}</span></div>`;
             }
@@ -447,7 +470,7 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                         rows.push({
                             card: cardName,
                             mechanic: mech,
-                            mechanicLabel: MECHANIC_LABELS[mech] || mech,
+                            mechanicLabel: formatMechanicLabel(mech),
                             tier: tier,
                             tierRankVal: tierRank(tier)
                         });
@@ -549,6 +572,7 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
         btn.addEventListener("click", async () => {
             const cardData = document.getElementById("card-data").value.trim();
             const apiKey = document.getElementById("api-key").value.trim();
+            const mechanics = document.getElementById("mechanics").value.trim();
 
             if (!cardData) {
                 showError("Please enter card data.");
@@ -563,7 +587,8 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
 
             const body = {
                 card_data: cardData,
-                api_key: apiKey || undefined  // Only include if provided
+                api_key: apiKey || undefined,  // Only include if provided
+                mechanics: mechanics || undefined  // Send custom mechanics
             };
 
             try {
@@ -609,6 +634,24 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                 errorTimer = null;
             }, 5000);
         }
+
+        // Load default mechanics on page load
+        async function loadDefaultMechanics() {
+            try {
+                const res = await fetch('/api/default-mechanics');
+                const data = await res.json();
+                document.getElementById('mechanics').value = data.mechanics;
+            } catch (e) {
+                console.error('Failed to load default mechanics:', e);
+                // Fallback: set a basic default in the textarea
+                document.getElementById('mechanics').placeholder =
+                    '- ramp: Accelerates your mana production...\n' +
+                    '- card_advantage: Net positive card advantage...';
+            }
+        }
+
+        // Call on page load
+        loadDefaultMechanics();
     </script>
 </body>
 </html>

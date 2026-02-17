@@ -28,6 +28,15 @@ prompt_path = os.path.join(os.path.dirname(__file__), "prompt.md")
 with open(prompt_path) as f:
     PROMPT_TEMPLATE = f.read()
 
+# Default mechanics definitions (extracted from prompt.md)
+DEFAULT_MECHANICS = """- ramp: Accelerates your mana production (Birds of Paradise, Cultivate, Sol Ring, Dockside Extortionist). Includes treasures, rituals, and other effects which increase the amount of mana you have available.  Does not include mana fixing or untapping effects.
+- card_advantage: Net positive card advantage giving you access to more than one card (Harmonize, Rhystic Study, Mulldrifter).  Does not include cantrips, cycling, card selection, or tutors unless they provide net positive card advantage (i.e. they give you more than one card).
+- targeted_disruption: A single card which removes or interacts with a single target opponent card (Path to Exile, Counterspell, Cyclonic Rift). Includes targeted removal, bounce spells, ability disruption, tap effects, and counterspells.
+- mass_disruption: A single card which affects multiple opponent cards or multiple opponents directly (Wrath of God, Cyclonic Rift, Rest in Peace). Includes mass removal, mass bounce, graveyard hate, and tap effects.
+- go_wide: Card supports a "go_wide" strategy by creating additional tokens or creates.
+- anthem: increases toughness or power of all creatures in the commander deck.
+- overrun: Provides buffs to (multiple) creatures strength, power, evasivenss or ability to get through, enabling a large number of creatures to do a high level of damage"""
+
 
 @app.route("/login")
 def login():
@@ -115,6 +124,12 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/default-mechanics", methods=["GET"])
+def get_default_mechanics():
+    """Return default mechanics for UI initialization."""
+    return jsonify({"mechanics": DEFAULT_MECHANICS})
+
+
 @app.route("/analyze", methods=["POST"])
 def analyze():
     data = request.get_json()
@@ -125,6 +140,9 @@ def analyze():
     if not card_data:
         return jsonify({"error": "Card data is required"}), 400
 
+    # Get custom mechanics or use defaults
+    mechanics = data.get("mechanics", "").strip() or DEFAULT_MECHANICS
+
     # API key priority: request body > environment variable
     api_key = (
         data.get("api_key", "").strip() or  # User input
@@ -134,7 +152,9 @@ def analyze():
     if not api_key:
         return jsonify({"error": "No API key provided. Please enter an API key or set ANTHROPIC_API_KEY environment variable."}), 401
 
+    # Substitute both placeholders
     prompt = PROMPT_TEMPLATE.replace("CARD_LIST_PLACEHOLDER", card_data)
+    prompt = prompt.replace("MECHANICS_PLACEHOLDER", mechanics)
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
