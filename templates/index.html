@@ -240,6 +240,99 @@
         }
         .muted { color: #666; font-style: italic; font-size: 0.9rem; }
 
+        /* Filter controls */
+        .filter-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            gap: 1rem;
+        }
+        .card-search {
+            max-width: 250px;
+            padding: 0.5rem 0.7rem;
+            border: 1px solid #333;
+            border-radius: 6px;
+            background: #16213e;
+            color: #e0e0e0;
+            font-size: 0.9rem;
+        }
+        .card-search:focus {
+            outline: none;
+            border-color: #c9a959;
+        }
+        .clear-filters-btn {
+            background: transparent;
+            color: #c9a959;
+            border: 1px solid #c9a959;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .clear-filters-btn:hover {
+            background: #c9a959;
+            color: #1a1a2e;
+        }
+
+        /* Clickable chips */
+        .count-chip {
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .count-chip:hover {
+            background: #1e2a4a;
+            border-color: #c9a959;
+        }
+        .count-chip.active {
+            background: #2a3552;
+            border: 2px solid #c9a959;
+            font-weight: 700;
+        }
+
+        /* Tier filters */
+        .tier-filters {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid #333;
+        }
+        .tier-label {
+            color: #888;
+            font-size: 0.85rem;
+            margin-right: 0.25rem;
+        }
+        .tier-filter {
+            cursor: pointer;
+            opacity: 0.5;
+            transition: all 0.15s ease;
+        }
+        .tier-filter:hover {
+            opacity: 0.75;
+        }
+        .tier-filter.active {
+            opacity: 1;
+            transform: scale(1.1);
+            box-shadow: 0 0 8px rgba(201, 169, 89, 0.4);
+        }
+
+        /* Filter info */
+        .filter-info {
+            color: #888;
+            font-size: 0.9rem;
+            margin-top: 0.75rem;
+            font-style: italic;
+        }
+        .empty-filter-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: #888;
+        }
+        .empty-filter-state button {
+            margin-top: 1rem;
+        }
+
         /* Card detail panel */
         .card-detail { margin-top: 1.5rem; display: none; }
         .card-detail.visible { display: block; }
@@ -283,6 +376,17 @@
             .left-panel { position: static; }
             .category-counts { position: static; }
             .error-toast { left: 1rem; right: 1rem; max-width: none; }
+            .filter-header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .card-search {
+                max-width: none;
+                width: 100%;
+            }
+            .tier-filters {
+                flex-wrap: wrap;
+            }
         }
     </style>
 </head>
@@ -360,6 +464,52 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
 
         let errorTimer = null;
         let lastResult = null;
+
+        // Filter state
+        const filterState = {
+            mechanics: new Set(),
+            tiers: new Set(),
+            searchText: ""
+        };
+
+        function hasActiveFilters() {
+            return filterState.mechanics.size > 0 ||
+                   filterState.tiers.size > 0 ||
+                   filterState.searchText.trim() !== "";
+        }
+
+        function applyFilters(rows) {
+            if (!hasActiveFilters()) {
+                return rows;
+            }
+
+            return rows.filter(row => {
+                // Mechanic filter (OR logic within mechanics)
+                const mechMatch = filterState.mechanics.size === 0 ||
+                                 filterState.mechanics.has(row.mechanic);
+
+                // Tier filter (OR logic within tiers)
+                const tierMatch = filterState.tiers.size === 0 ||
+                                 filterState.tiers.has(row.tierRankVal);
+
+                // Search filter (AND logic for card name)
+                const searchMatch = filterState.searchText === "" ||
+                                   row.card.toLowerCase().includes(
+                                       filterState.searchText.toLowerCase()
+                                   );
+
+                // Combine with AND logic between filter types
+                return mechMatch && tierMatch && searchMatch;
+            });
+        }
+
+        function clearAllFilters() {
+            filterState.mechanics.clear();
+            filterState.tiers.clear();
+            filterState.searchText = "";
+            const searchInput = document.getElementById("card-search");
+            if (searchInput) searchInput.value = "";
+        }
 
         // Generate display label from mechanic key
         function formatMechanicLabel(mechKey) {
@@ -444,6 +594,9 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
         }
 
         function renderResults(data) {
+            // Reset filters when new data arrives
+            clearAllFilters();
+
             // If the API returned a plain string, show it as raw text
             if (typeof data === "string") {
                 try {
@@ -478,10 +631,12 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                 }
             }
 
-            // Category counts
+            // Category counts with mechanic key mapping
             const counts = {};
+            const mechanicKeyMap = {}; // Map label → key
             for (const row of rows) {
                 counts[row.mechanicLabel] = (counts[row.mechanicLabel] || 0) + 1;
+                mechanicKeyMap[row.mechanicLabel] = row.mechanic;
             }
             const countsSorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
 
@@ -489,8 +644,12 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
             let sortCol = "tier";
             let sortAsc = true; // ascending tierRank = strongest first
 
-            function sortRows() {
-                rows.sort((a, b) => {
+            function renderTable() {
+                // Apply filters first
+                const filteredRows = applyFilters(rows);
+
+                // Sort the filtered results
+                filteredRows.sort((a, b) => {
                     let cmp = 0;
                     if (sortCol === "card") {
                         cmp = a.card.localeCompare(b.card);
@@ -501,37 +660,93 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                     }
                     return sortAsc ? cmp : -cmp;
                 });
-            }
 
-            function renderTable() {
-                sortRows();
                 const arrow = sortAsc ? "▲" : "▼";
                 const thCard = `Card${sortCol === "card" ? ' <span class="sort-arrow">' + arrow + '</span>' : ''}`;
                 const thMech = `Mechanic${sortCol === "mechanic" ? ' <span class="sort-arrow">' + arrow + '</span>' : ''}`;
                 const thTier = `Tier${sortCol === "tier" ? ' <span class="sort-arrow">' + arrow + '</span>' : ''}`;
 
-                let html = '<div class="category-counts">';
-                for (const [label, count] of countsSorted) {
-                    html += `<span class="count-chip">${esc(label)}: ${count}</span>`;
-                }
+                // Filter header with search and clear button
+                let html = '<div class="filter-header">';
+                html += '<input type="text" id="card-search" class="card-search" placeholder="Search cards...">';
+                html += `<button id="clear-filters" class="clear-filters-btn" style="display: ${hasActiveFilters() ? 'inline-block' : 'none'}">Clear filters</button>`;
                 html += '</div>';
+
+                // Category counts with click handlers
+                html += '<div class="category-counts">';
+                for (const [label, count] of countsSorted) {
+                    const mechKey = mechanicKeyMap[label];
+                    const isActive = filterState.mechanics.has(mechKey);
+                    const activeClass = isActive ? ' active' : '';
+                    html += `<span class="count-chip${activeClass}" data-mechanic="${esc(mechKey)}">${esc(label)}: ${count}</span>`;
+                }
+
+                // Tier filters
+                html += '<div class="tier-filters">';
+                html += '<span class="tier-label">Tiers:</span>';
+                const tiers = [
+                    {rank: 0, label: 'S+', class: 'badge-s'},
+                    {rank: 1, label: 'S', class: 'badge-s'},
+                    {rank: 2, label: 'A', class: 'badge-a'},
+                    {rank: 3, label: 'B', class: 'badge-b'},
+                    {rank: 4, label: 'C', class: 'badge-c'},
+                    {rank: 5, label: 'D', class: 'badge-d'}
+                ];
+                for (const tier of tiers) {
+                    const isActive = filterState.tiers.has(tier.rank);
+                    const activeClass = isActive ? ' active' : '';
+                    html += `<span class="badge tier-filter ${tier.class}${activeClass}" data-tier="${tier.rank}">${tier.label}</span>`;
+                }
+                html += '</div>'; // tier-filters
+                html += '</div>'; // category-counts
+
+                // Check if no results after filtering
+                if (filteredRows.length === 0 && hasActiveFilters()) {
+                    html += '<div class="empty-filter-state">';
+                    html += '<p>No cards match your filters</p>';
+                    html += '<button id="clear-filters-empty">Clear all filters</button>';
+                    html += '</div>';
+                    resultsTable.innerHTML = html;
+
+                    // Attach clear button for empty state
+                    const clearEmptyBtn = document.getElementById("clear-filters-empty");
+                    if (clearEmptyBtn) {
+                        clearEmptyBtn.addEventListener("click", () => {
+                            clearAllFilters();
+                            renderTable();
+                        });
+                    }
+
+                    attachFilterHandlers();
+                    return;
+                }
+
+                // Results table
                 html += '<table class="results-table"><thead><tr>';
                 html += `<th class="sort-header" data-col="card">${thCard}</th>`;
                 html += `<th class="sort-header" data-col="mechanic">${thMech}</th>`;
                 html += `<th class="sort-header" data-col="tier">${thTier}</th>`;
                 html += '</tr></thead><tbody>';
 
-                for (const row of rows) {
+                for (const row of filteredRows) {
                     const cls = tierBadgeClass(row.tier);
                     html += `<tr><td>${esc(row.card)}</td><td>${esc(row.mechanicLabel)}</td><td><span class="badge ${cls}">${esc(row.tier)}</span></td></tr>`;
                 }
                 html += '</tbody></table>';
+
+                // Filter info
+                if (filteredRows.length < rows.length) {
+                    html += `<p class="filter-info">Showing ${filteredRows.length} of ${rows.length} results</p>`;
+                }
 
                 if (noMechCount > 0) {
                     html += `<p class="muted">${noMechCount} card${noMechCount === 1 ? '' : 's'} had no tagged mechanics</p>`;
                 }
 
                 resultsTable.innerHTML = html;
+
+                // Attach handlers
+                attachFilterHandlers();
 
                 // Attach sort handlers
                 resultsTable.querySelectorAll(".sort-header").forEach(th => {
@@ -542,6 +757,53 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                         } else {
                             sortCol = col;
                             sortAsc = true;
+                        }
+                        renderTable();
+                    });
+                });
+            }
+
+            function attachFilterHandlers() {
+                // Search input
+                const searchInput = document.getElementById("card-search");
+                if (searchInput) {
+                    searchInput.value = filterState.searchText;
+                    searchInput.addEventListener("input", (e) => {
+                        filterState.searchText = e.target.value.trim();
+                        renderTable();
+                    });
+                }
+
+                // Clear filters button
+                const clearBtn = document.getElementById("clear-filters");
+                if (clearBtn) {
+                    clearBtn.addEventListener("click", () => {
+                        clearAllFilters();
+                        renderTable();
+                    });
+                }
+
+                // Mechanic chip filters
+                document.querySelectorAll(".count-chip").forEach(chip => {
+                    chip.addEventListener("click", () => {
+                        const mechanic = chip.getAttribute("data-mechanic");
+                        if (filterState.mechanics.has(mechanic)) {
+                            filterState.mechanics.delete(mechanic);
+                        } else {
+                            filterState.mechanics.add(mechanic);
+                        }
+                        renderTable();
+                    });
+                });
+
+                // Tier filters
+                document.querySelectorAll(".tier-filter").forEach(badge => {
+                    badge.addEventListener("click", () => {
+                        const tier = parseInt(badge.getAttribute("data-tier"));
+                        if (filterState.tiers.has(tier)) {
+                            filterState.tiers.delete(tier);
+                        } else {
+                            filterState.tiers.add(tier);
                         }
                         renderTable();
                     });
