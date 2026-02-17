@@ -135,6 +135,20 @@
         .badge-b  { background: #1565c0; color: #fff; }
         .badge-c  { background: #555;    color: #ccc; }
         .badge-d  { background: #8b1a1a; color: #fff; }
+        .category-counts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .count-chip {
+            background: #16213e;
+            border: 1px solid #333;
+            border-radius: 999px;
+            padding: 0.3rem 0.8rem;
+            font-size: 0.85rem;
+            color: #c9a959;
+        }
         .muted { color: #666; font-style: italic; font-size: 0.9rem; }
         .raw-toggle {
             background: none;
@@ -156,11 +170,6 @@
     <div class="container">
         <h1>MTG Tagger</h1>
         <p class="subtitle">Analyze Magic: The Gathering cards for Commander mechanics and tier ratings</p>
-
-        <div class="field">
-            <label for="api-key">Anthropic API Key</label>
-            <input type="password" id="api-key" placeholder="sk-ant-...">
-        </div>
 
         <div class="field">
             <label for="card-data">Card Data</label>
@@ -191,9 +200,6 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
         const resultsTable = document.getElementById("results-table");
         const rawToggle = document.getElementById("raw-toggle");
         const rawJson = document.getElementById("raw-json");
-        const apiKeyField = document.getElementById("api-key");
-        const apiKeyContainer = apiKeyField.closest(".field");
-        let hasEnvKey = false;
 
         const MECHANIC_LABELS = {
             ramp: "Ramp",
@@ -210,15 +216,6 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
             rawToggle.textContent = rawJson.classList.contains("visible")
                 ? "Hide raw JSON" : "Show raw JSON";
         });
-
-        fetch("/config")
-            .then(res => res.json())
-            .then(data => {
-                hasEnvKey = data.has_env_key;
-                if (hasEnvKey) {
-                    apiKeyContainer.style.display = "none";
-                }
-            });
 
         function esc(str) {
             const d = document.createElement("div");
@@ -277,6 +274,13 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                 }
             }
 
+            // Category counts
+            const counts = {};
+            for (const row of rows) {
+                counts[row.mechanicLabel] = (counts[row.mechanicLabel] || 0) + 1;
+            }
+            const countsSorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+
             // Sort state
             let sortCol = "tier";
             let sortAsc = true; // ascending tierRank = strongest first
@@ -302,7 +306,12 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                 const thMech = `Mechanic${sortCol === "mechanic" ? ' <span class="sort-arrow">' + arrow + '</span>' : ''}`;
                 const thTier = `Tier${sortCol === "tier" ? ' <span class="sort-arrow">' + arrow + '</span>' : ''}`;
 
-                let html = '<table class="results-table"><thead><tr>';
+                let html = '<div class="category-counts">';
+                for (const [label, count] of countsSorted) {
+                    html += `<span class="count-chip">${esc(label)}: ${count}</span>`;
+                }
+                html += '</div>';
+                html += '<table class="results-table"><thead><tr>';
                 html += `<th class="sort-header" data-col="card">${thCard}</th>`;
                 html += `<th class="sort-header" data-col="mechanic">${thMech}</th>`;
                 html += `<th class="sort-header" data-col="tier">${thTier}</th>`;
@@ -344,13 +353,8 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
         }
 
         btn.addEventListener("click", async () => {
-            const apiKey = apiKeyField.value.trim();
             const cardData = document.getElementById("card-data").value.trim();
 
-            if (!hasEnvKey && !apiKey) {
-                showError("Please fill in both the API key and card data.");
-                return;
-            }
             if (!cardData) {
                 showError("Please enter card data.");
                 return;
@@ -362,7 +366,6 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
             resultsEl.classList.remove("visible");
 
             const body = { card_data: cardData };
-            if (apiKey) body.api_key = apiKey;
 
             try {
                 const res = await fetch("/analyze", {

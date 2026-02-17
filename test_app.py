@@ -1,4 +1,4 @@
-"""Tests for the env-var API key fallback workflow."""
+"""Tests for the MTG Tagger app."""
 
 import importlib
 import json
@@ -25,40 +25,14 @@ def _mock_anthropic_response(text):
     return message
 
 
-# ---------- GET /config ----------
+# ---------- POST /analyze — env var required ----------
 
 
-class TestConfigRoute:
-    def test_config_has_env_key_true(self):
-        app, _ = _make_app(env_key="sk-ant-test-key")
-        with app.test_client() as c:
-            resp = c.get("/config")
-            assert resp.status_code == 200
-            assert resp.get_json() == {"has_env_key": True}
-
-    def test_config_has_env_key_false(self):
-        app, _ = _make_app(env_key="")
-        with app.test_client() as c:
-            resp = c.get("/config")
-            assert resp.status_code == 200
-            assert resp.get_json() == {"has_env_key": False}
-
-    def test_config_has_env_key_false_when_whitespace_only(self):
-        app, _ = _make_app(env_key="   ")
-        with app.test_client() as c:
-            resp = c.get("/config")
-            assert resp.status_code == 200
-            assert resp.get_json() == {"has_env_key": False}
-
-
-# ---------- POST /analyze — env key fallback ----------
-
-
-class TestAnalyzeEnvKeyFallback:
-    """Verify that /analyze uses the env var when no api_key is in the body."""
+class TestAnalyzeEnvKey:
+    """Verify that /analyze requires the ANTHROPIC_API_KEY env var."""
 
     @patch("app.anthropic.Anthropic")
-    def test_uses_env_key_when_no_key_in_body(self, MockAnthropic):
+    def test_uses_env_key(self, MockAnthropic):
         app, _ = _make_app(env_key="sk-ant-env-key")
         mock_client = MagicMock()
         MockAnthropic.return_value = mock_client
@@ -74,58 +48,18 @@ class TestAnalyzeEnvKeyFallback:
             assert resp.status_code == 200
             MockAnthropic.assert_called_once_with(api_key="sk-ant-env-key")
 
-    @patch("app.anthropic.Anthropic")
-    def test_request_key_takes_precedence_over_env(self, MockAnthropic):
-        app, _ = _make_app(env_key="sk-ant-env-key")
-        mock_client = MagicMock()
-        MockAnthropic.return_value = mock_client
-        mock_client.messages.create.return_value = _mock_anthropic_response(
-            '{"cards": []}'
-        )
-
-        with app.test_client() as c:
-            resp = c.post(
-                "/analyze",
-                json={
-                    "api_key": "sk-ant-request-key",
-                    "card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}.",
-                },
-            )
-            assert resp.status_code == 200
-            MockAnthropic.assert_called_once_with(api_key="sk-ant-request-key")
-
-    def test_returns_400_when_no_key_anywhere(self):
+    def test_returns_500_when_no_env_key(self):
         app, _ = _make_app(env_key="")
         with app.test_client() as c:
             resp = c.post(
                 "/analyze",
                 json={"card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}."},
             )
-            assert resp.status_code == 400
-            assert "API key is required" in resp.get_json()["error"]
-
-    @patch("app.anthropic.Anthropic")
-    def test_empty_string_key_in_body_falls_back_to_env(self, MockAnthropic):
-        app, _ = _make_app(env_key="sk-ant-env-key")
-        mock_client = MagicMock()
-        MockAnthropic.return_value = mock_client
-        mock_client.messages.create.return_value = _mock_anthropic_response(
-            '{"cards": []}'
-        )
-
-        with app.test_client() as c:
-            resp = c.post(
-                "/analyze",
-                json={
-                    "api_key": "",
-                    "card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}.",
-                },
-            )
-            assert resp.status_code == 200
-            MockAnthropic.assert_called_once_with(api_key="sk-ant-env-key")
+            assert resp.status_code == 500
+            assert "ANTHROPIC_API_KEY" in resp.get_json()["error"]
 
 
-# ---------- POST /analyze — existing validation still works ----------
+# ---------- POST /analyze — validation ----------
 
 
 class TestAnalyzeValidation:
@@ -154,12 +88,12 @@ class TestIndexRoute:
             assert resp.status_code == 200
             assert b"MTG Tagger" in resp.data
 
-    def test_index_contains_config_fetch(self):
-        """The page should fetch /config to decide whether to show the key field."""
+    def test_index_has_no_api_key_field(self):
+        """The page should not contain an API key input field."""
         app, _ = _make_app(env_key="")
         with app.test_client() as c:
             resp = c.get("/")
-            assert b"/config" in resp.data
+            assert b'id="api-key"' not in resp.data
 
     def test_index_contains_results_structure(self):
         """The page should contain the sortable results table UI elements."""
@@ -181,7 +115,6 @@ class TestIndexRoute:
         with app.test_client() as c:
             resp = c.get("/")
             html = resp.data
-            # The JS should try JSON.parse inside a try/catch and fall back
             assert b"JSON.parse" in html
             assert b"catch" in html
 
