@@ -13,7 +13,26 @@
             min-height: 100vh;
             padding: 2rem;
         }
-        .container { max-width: 720px; margin: 0 auto; }
+        .dashboard {
+            display: grid;
+            grid-template-columns: minmax(360px, 38%) 1fr;
+            gap: 2.5rem;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        .left-panel {
+            position: sticky;
+            top: 2rem;
+            align-self: flex-start;
+        }
+        .right-panel {
+            position: relative;
+            min-height: 300px;
+        }
+        .right-panel.loading {
+            opacity: 0.5;
+            pointer-events: none;
+        }
         h1 {
             font-size: 1.8rem;
             margin-bottom: 0.25rem;
@@ -58,25 +77,81 @@
         }
         button:hover { background: #d4b96a; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
-        .loading {
-            display: none;
-            margin-top: 1rem;
-            color: #c9a959;
+
+        /* Loading bar */
+        .loading-bar {
+            height: 3px;
+            background: #333;
+            border-radius: 2px;
+            margin-top: 0.75rem;
+            overflow: hidden;
+            visibility: hidden;
         }
-        .loading.visible { display: block; }
-        .error {
-            display: none;
-            margin-top: 1rem;
-            padding: 0.8rem;
+        .loading-bar.visible { visibility: visible; }
+        .loading-bar::after {
+            content: "";
+            display: block;
+            width: 30%;
+            height: 100%;
+            background: #c9a959;
+            border-radius: 2px;
+            animation: loading-slide 1.2s ease-in-out infinite;
+        }
+        @keyframes loading-slide {
+            0%   { transform: translateX(-100%); }
+            100% { transform: translateX(433%); }
+        }
+
+        /* Error toast */
+        .error-toast {
+            position: fixed;
+            top: 2rem;
+            right: 2rem;
+            max-width: 400px;
+            padding: 0.8rem 2.5rem 0.8rem 1rem;
             background: #3a1a1a;
             border: 1px solid #a33;
             border-radius: 6px;
             color: #f88;
+            font-size: 0.9rem;
+            z-index: 100;
+            transform: translateX(calc(100% + 2rem));
+            transition: transform 0.3s ease;
         }
-        .error.visible { display: block; }
+        .error-toast.visible {
+            animation: toast-slide-in 0.3s ease forwards;
+        }
+        @keyframes toast-slide-in {
+            from { transform: translateX(calc(100% + 2rem)); }
+            to   { transform: translateX(0); }
+        }
+        .error-dismiss {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.6rem;
+            background: none;
+            border: none;
+            color: #f88;
+            font-size: 1rem;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            font-weight: 400;
+        }
+        .error-dismiss:hover { color: #faa; background: none; }
+
+        /* Empty state */
+        .empty-state {
+            color: #555;
+            font-style: italic;
+            text-align: center;
+            padding-top: 6rem;
+            font-size: 1rem;
+        }
+        .empty-state.hidden { display: none; }
+
         .results {
             display: none;
-            margin-top: 1.5rem;
         }
         .results.visible { display: block; }
         .results h2 {
@@ -140,6 +215,12 @@
             flex-wrap: wrap;
             gap: 0.5rem;
             margin-bottom: 1rem;
+            position: sticky;
+            top: 0;
+            background: #1a1a2e;
+            padding: 0.5rem 0;
+            z-index: 10;
+            border-bottom: 1px solid #333;
         }
         .count-chip {
             background: #16213e;
@@ -164,29 +245,44 @@
         .raw-toggle:hover { text-decoration: underline; background: none; }
         .raw-json { display: none; margin-top: 0.5rem; }
         .raw-json.visible { display: block; }
+
+        @media (max-width: 768px) {
+            .dashboard { grid-template-columns: 1fr; gap: 1.5rem; }
+            .left-panel { position: static; }
+            .category-counts { position: static; }
+            .error-toast { left: 1rem; right: 1rem; max-width: none; }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>MTG Tagger</h1>
-        <p class="subtitle">Analyze Magic: The Gathering cards for Commander mechanics and tier ratings</p>
+    <div class="dashboard">
+        <div class="left-panel">
+            <h1>MTG Tagger</h1>
+            <p class="subtitle">Analyze Magic: The Gathering cards for Commander mechanics and tier ratings</p>
 
-        <div class="field">
-            <label for="card-data">Card Data</label>
-            <textarea id="card-data" placeholder="Name: Sol Ring. Text: {T}: Add {C}{C}.
+            <div class="field">
+                <label for="card-data">Card Data</label>
+                <textarea id="card-data" placeholder="Name: Sol Ring. Text: {T}: Add {C}{C}.
 Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to its owner's hand. Overload {6}{U}"></textarea>
+            </div>
+
+            <button id="submit-btn">Analyze Cards</button>
+            <div class="loading-bar" id="loading"></div>
         </div>
 
-        <button id="submit-btn">Analyze Cards</button>
-
-        <div class="loading" id="loading">Analyzing cards...</div>
-        <div class="error" id="error"></div>
-        <div class="results" id="results">
-            <h2>Results</h2>
-            <div id="results-table"></div>
-            <button class="raw-toggle" id="raw-toggle">Show raw JSON</button>
-            <div class="raw-json" id="raw-json">
-                <pre id="results-content"></pre>
+        <div class="right-panel" id="right-panel">
+            <div class="empty-state" id="empty-state">Submit cards to see results</div>
+            <div class="error-toast" id="error">
+                <button class="error-dismiss" id="error-dismiss">&times;</button>
+                <span id="error-msg"></span>
+            </div>
+            <div class="results" id="results">
+                <h2>Results</h2>
+                <div id="results-table"></div>
+                <button class="raw-toggle" id="raw-toggle">Show raw JSON</button>
+                <div class="raw-json" id="raw-json">
+                    <pre id="results-content"></pre>
+                </div>
             </div>
         </div>
     </div>
@@ -195,11 +291,17 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
         const btn = document.getElementById("submit-btn");
         const loading = document.getElementById("loading");
         const errorEl = document.getElementById("error");
+        const errorMsg = document.getElementById("error-msg");
+        const errorDismiss = document.getElementById("error-dismiss");
         const resultsEl = document.getElementById("results");
         const resultsContent = document.getElementById("results-content");
         const resultsTable = document.getElementById("results-table");
         const rawToggle = document.getElementById("raw-toggle");
         const rawJson = document.getElementById("raw-json");
+        const rightPanel = document.getElementById("right-panel");
+        const emptyState = document.getElementById("empty-state");
+
+        let errorTimer = null;
 
         const MECHANIC_LABELS = {
             ramp: "Ramp",
@@ -216,6 +318,14 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
             rawToggle.textContent = rawJson.classList.contains("visible")
                 ? "Hide raw JSON" : "Show raw JSON";
         });
+
+        function dismissError() {
+            errorEl.classList.remove("visible");
+            if (errorTimer) { clearTimeout(errorTimer); errorTimer = null; }
+        }
+
+        errorDismiss.addEventListener("click", dismissError);
+        errorEl.addEventListener("click", dismissError);
 
         function esc(str) {
             const d = document.createElement("div");
@@ -362,7 +472,8 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
 
             btn.disabled = true;
             loading.classList.add("visible");
-            errorEl.classList.remove("visible");
+            rightPanel.classList.add("loading");
+            dismissError();
             resultsEl.classList.remove("visible");
 
             const body = { card_data: cardData };
@@ -381,6 +492,7 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                     return;
                 }
 
+                emptyState.classList.add("hidden");
                 renderResults(data.result);
                 resultsEl.classList.add("visible");
             } catch (e) {
@@ -392,12 +504,18 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
             } finally {
                 btn.disabled = false;
                 loading.classList.remove("visible");
+                rightPanel.classList.remove("loading");
             }
         });
 
         function showError(msg) {
-            errorEl.textContent = msg;
+            errorMsg.textContent = msg;
             errorEl.classList.add("visible");
+            if (errorTimer) clearTimeout(errorTimer);
+            errorTimer = setTimeout(() => {
+                errorEl.classList.remove("visible");
+                errorTimer = null;
+            }, 5000);
         }
     </script>
 </body>

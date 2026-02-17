@@ -96,11 +96,14 @@ class TestIndexRoute:
             assert b'id="api-key"' not in resp.data
 
     def test_index_contains_results_structure(self):
-        """The page should contain the sortable results table UI elements."""
+        """The page should contain the dashboard layout and sortable results table UI elements."""
         app, _ = _make_app(env_key="")
         with app.test_client() as c:
             resp = c.get("/")
             html = resp.data
+            assert b"dashboard" in html
+            assert b"left-panel" in html
+            assert b"right-panel" in html
             assert b'id="results-table"' in html
             assert b'id="raw-toggle"' in html
             assert b'id="raw-json"' in html
@@ -125,6 +128,7 @@ class TestIndexRoute:
             resp = c.get("/")
             html = resp.data
             assert b"Error rendering results" in html
+            assert b"error-toast" in html
 
 
 # ---------- POST /analyze — response shape ----------
