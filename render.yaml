@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: mtg-tagger
+    runtime: python
+    plan: free
+    buildCommand: pip install uv && uv pip install --system -r pyproject.toml
+    startCommand: gunicorn app:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
