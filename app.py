@@ -139,6 +139,8 @@ def analyze():
     card_data = data.get("card_data", "").strip()
     if not card_data:
         return jsonify({"error": "Card data is required"}), 400
+    if len(card_data) > 50_000:
+        return jsonify({"error": "Card data too large (max 50,000 characters)."}), 400
 
     # Get custom mechanics or use defaults
     mechanics = data.get("mechanics", "").strip() or DEFAULT_MECHANICS
