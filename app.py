@@ -143,14 +143,19 @@ def analyze():
     # Get custom mechanics or use defaults
     mechanics = data.get("mechanics", "").strip() or DEFAULT_MECHANICS
 
-    # API key priority: request body > environment variable
-    api_key = (
-        data.get("api_key", "").strip() or  # User input
-        os.environ.get("ANTHROPIC_API_KEY", "").strip()  # Environment variable
-    )
+    # Validate access code if ACCESS_PASSWORD is configured
+    access_password = os.environ.get("ACCESS_PASSWORD", "").strip()
+    if access_password:
+        access_code = data.get("access_code", "").strip()
+        if not access_code:
+            return jsonify({"error": "Access code required.", "error_type": "access_code_required"}), 403
+        if not secrets.compare_digest(access_code, access_password):
+            return jsonify({"error": "Access denied: incorrect access code.", "error_type": "access_code_invalid"}), 403
 
+    # Always use server-side API key
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
-        return jsonify({"error": "No API key provided. Please enter an API key or set ANTHROPIC_API_KEY environment variable."}), 401
+        return jsonify({"error": "Server is not configured with an API key. Set ANTHROPIC_API_KEY environment variable."}), 500
 
     # Substitute both placeholders
     prompt = PROMPT_TEMPLATE.replace("CARD_LIST_PLACEHOLDER", card_data)

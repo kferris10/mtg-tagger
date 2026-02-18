@@ -397,8 +397,8 @@
             <p class="subtitle">Analyze Magic: The Gathering cards for Commander mechanics and tier ratings</p>
 
             <div class="field">
-                <label for="api-key">Anthropic API Key <span class="optional-label">(optional - uses env var if blank)</span></label>
-                <input type="password" id="api-key" placeholder="sk-ant-...">
+                <label for="access-code">Access Code</label>
+                <input type="password" id="access-code" placeholder="Enter access code">
             </div>
 
             <div class="field">
@@ -833,7 +833,7 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
 
         btn.addEventListener("click", async () => {
             const cardData = document.getElementById("card-data").value.trim();
-            const apiKey = document.getElementById("api-key").value.trim();
+            const accessCode = document.getElementById("access-code").value.trim();
             const mechanics = document.getElementById("mechanics").value.trim();
 
             if (!cardData) {
@@ -849,8 +849,8 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
 
             const body = {
                 card_data: cardData,
-                api_key: apiKey || undefined,  // Only include if provided
-                mechanics: mechanics || undefined  // Send custom mechanics
+                access_code: accessCode || undefined,
+                mechanics: mechanics || undefined
             };
 
             try {
@@ -863,12 +863,18 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
                 const data = await res.json();
 
                 if (!res.ok) {
-                    if (res.status === 401) {
-                        showError("Authentication required. Please enter an API key or sign in with OAuth.");
+                    if (res.status === 403) {
+                        localStorage.removeItem("mtg_tagger_access_code");
+                        showError(data.error || "Access denied: incorrect access code.");
+                        document.getElementById("access-code").focus();
                         return;
                     }
                     showError(data.error || "An unexpected error occurred.");
                     return;
+                }
+
+                if (accessCode) {
+                    localStorage.setItem("mtg_tagger_access_code", accessCode);
                 }
 
                 emptyState.classList.add("hidden");
@@ -914,6 +920,11 @@ Name: Cyclonic Rift. Text: Return target nonland permanent you don't control to 
 
         // Call on page load
         loadDefaultMechanics();
+
+        const savedCode = localStorage.getItem("mtg_tagger_access_code");
+        if (savedCode) {
+            document.getElementById("access-code").value = savedCode;
+        }
     </script>
 </body>
 </html>
