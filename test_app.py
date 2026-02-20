@@ -189,6 +189,7 @@ class TestIndexRoute:
 
     def test_index_contains_results_structure(self):
         """The page should contain the dashboard layout and sortable results table UI elements."""
+        import os
         app, _ = _make_app(env_key="")
         with app.test_client() as c:
             resp = c.get("/")
@@ -199,28 +200,32 @@ class TestIndexRoute:
             assert b'id="results-table"' in html
             assert b'id="raw-toggle"' in html
             assert b'id="raw-json"' in html
-            assert b"renderResults" in html
             assert b"results-table" in html
-            assert b"sort-header" in html
-            assert b"no tagged mechanics" in html
+            # JS is now in static/app.js — check the script tag and the file itself
+            assert b"/static/app.js" in html
+            app_js = open(os.path.join(os.path.dirname(__file__), "static", "app.js")).read()
+            assert "renderResults" in app_js
+            assert "sort-header" in app_js
+            assert "no tagged mechanics" in app_js
 
     def test_index_has_string_result_fallback(self):
         """renderResults should handle plain-string results without crashing."""
-        app, _ = _make_app(env_key="")
-        with app.test_client() as c:
-            resp = c.get("/")
-            html = resp.data
-            assert b"JSON.parse" in html
-            assert b"catch" in html
+        import os
+        app_js = open(os.path.join(os.path.dirname(__file__), "static", "app.js")).read()
+        assert "JSON.parse" in app_js
+        assert "catch" in app_js
 
     def test_index_has_render_error_handling(self):
         """The fetch catch block should distinguish render errors from network errors."""
+        import os
         app, _ = _make_app(env_key="")
         with app.test_client() as c:
             resp = c.get("/")
             html = resp.data
-            assert b"Error rendering results" in html
             assert b"error-toast" in html
+        # Error strings live in static/app.js
+        app_js = open(os.path.join(os.path.dirname(__file__), "static", "app.js")).read()
+        assert "Error rendering results" in app_js
 
 
 # ---------- POST /analyze — response shape ----------
