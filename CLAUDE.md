@@ -4,49 +4,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MTG Tagger is a Flask web app that uses the Anthropic API to analyze Magic: The Gathering cards for Commander format mechanics and tier ratings. Users authenticate via Anthropic Console OAuth and provide card data through a web UI. The app sends the cards to Claude with a detailed prompt template (`prompt.md`) that defines the mechanics taxonomy and tier system.
+MTG Tagger is a Flask web app that uses the Anthropic API to analyze Magic: The Gathering cards for Commander format mechanics and tier ratings. Users submit card data through a web UI; the server calls Claude with a prompt template (`prompt.md`) that defines the mechanics taxonomy and tier system, then returns a JSON result rendered as a sortable table.
 
 ## Commands
 
 - **Install dependencies:** `uv sync`
-- **Setup environment:** Copy `.env.example` to `.env` and configure OAuth credentials
-- **Run the dev server:** `uv run python app.py` (starts Flask on localhost:5000 with debug mode)
+- **Run the dev server:** `uv run python app.py` (Flask on localhost:5000, debug mode)
+- **Run tests:** `uv run pytest`
+- **Run a single test:** `uv run pytest test_app.py::ClassName::test_name`
+- **Setup environment:** Copy `.env.example` to `.env` and fill in values
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Yes | Server-side Anthropic key; never exposed to users |
+| `FLASK_SECRET_KEY` | Yes (production) | Flask session signing key |
+| `ACCESS_PASSWORD` | No | Shared access code for the UI; if unset, no code is required |
+| `FLASK_ENV` | No | Set to `production` to enable secure cookies |
 
 ## Architecture
 
-- **`app.py`** — Flask application with analysis route. `GET /` serves the UI, `POST /analyze` accepts card data and optional API key, substitutes cards into the prompt template, calls the Anthropic API, and returns JSON results. API key priority: request body > environment variable.
-- **`prompt.md`** — Prompt template with `CARD_LIST_PLACEHOLDER` that gets replaced with user-provided card data. Defines the mechanics to tag (ramp, card_advantage, targeted_disruption, mass_disruption, go_wide, anthem, overrun) and the tier system (S+ through D-Tier).
-- **`templates/index.html`** — Single-page UI with inline CSS/JS. Collects optional API key and card data, POSTs to `/analyze`, displays sortable results table with tier-ranked mechanics and individual card detail panel.
-- **`main.py`** — Placeholder entry point (unused by the web app).
-- **`.env`** — Local environment configuration (not committed). Contains optional `ANTHROPIC_API_KEY` for fallback authentication.
-- **`.env.example`** — Template for environment variables.
-- **`oauth_manager.py`** — OAuth 2.0 manager (unused, kept for potential future use).
+**Request flow:** Browser → `POST /analyze` → substitute card data + mechanics into `prompt.md` → Anthropic API → parse JSON response → return to UI → render sortable table.
 
-## Authentication
-
-The app supports **two authentication methods** with the following priority:
-
-1. **User-provided API key** (entered in the UI) - highest priority
-2. **Environment variable** (`ANTHROPIC_API_KEY`) - fallback
-
-### Method 1: Manual API Key Entry (Recommended)
-
-Simply enter your Anthropic API key in the web UI. Get your key from [console.anthropic.com](https://console.anthropic.com/) → Settings → API Keys.
-
-Leave the field blank to use the environment variable fallback.
-
-### Method 2: Environment Variable
-
-Set `ANTHROPIC_API_KEY` in `.env` or your environment. This will be used as a fallback if no API key is entered in the UI.
+- **`app.py`** — Flask app. `GET /` serves the UI. `POST /analyze` validates the access code (if `ACCESS_PASSWORD` is set), reads the server-side `ANTHROPIC_API_KEY`, substitutes `CARD_LIST_PLACEHOLDER` and `MECHANICS_PLACEHOLDER` in `prompt.md`, calls the Anthropic API (`claude-sonnet-4-20250514`, max 4096 tokens), strips any markdown code fences from the response, parses JSON, and returns `{"result": ...}`. Input is capped at 50,000 characters. `GET /api/default-mechanics` returns the built-in mechanics definitions for UI initialization.
+- **`prompt.md`** — Prompt template with two placeholders: `CARD_LIST_PLACEHOLDER` (card list) and `MECHANICS_PLACEHOLDER` (mechanic definitions). Defines the tier system (S+ through D-Tier) and analysis instructions.
+- **`templates/index.html`** — Single-page UI with inline CSS/JS. Fetches `/api/default-mechanics` on load, submits card data + optional access code + optional custom mechanics to `/analyze`, and renders a sortable results table with a card detail panel.
+- **`oauth_manager.py`** — OAuth 2.0 manager. Routes `/login`, `/oauth/callback`, `/logout`, `/auth/status` exist in `app.py` but the OAuth flow is dormant; the app currently uses only the server-side `ANTHROPIC_API_KEY`.
+- **`test_app.py`** — pytest test suite. Note: some tests reflect an older design where users could provide their own API key; those tests may not match current behavior.
 
 ## Card Data Format
 
-Cards are provided as: `Name: card_name. Text: card_text` (one per line).
+Archidekt export format: `Name: card_name. Text: card_text` (one per line).
 
-## Key Details
+## Deployment
 
-- Python 3.9, managed with `uv`
-- Authentication via API key (user-provided or environment variable)
-- API keys can be entered in the UI or set via `ANTHROPIC_API_KEY` environment variable
-- The API call uses `claude-sonnet-4-20250514`
-- Dependencies: Flask, Anthropic SDK, python-dotenv, requests
+Deployed to Render via `render.yaml`. Build: `pip install .`. Start: `gunicorn app:app`. `FLASK_SECRET_KEY` is auto-generated by Render; `ANTHROPIC_API_KEY` and `ACCESS_PASSWORD` must be set manually in the Render dashboard.
