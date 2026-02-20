@@ -456,9 +456,7 @@
 
             <div class="field">
                 <label for="card-data">Card Data</label>
-                <textarea id="card-data" placeholder="1x Sol Ring
-1x Cyclonic Rift
-1x Birds of Paradise"></textarea>
+                <textarea id="card-data"></textarea>
             </div>
 
             <button id="submit-btn">Analyze Cards</button>
@@ -1071,6 +1069,86 @@
                     '- card_advantage: Net positive card advantage...';
             }
         }
+
+        // Default card list
+        const DEFAULT_CARDS = `1 Adorned Pouncer
+1 Angelic Cub
+1 Arahbo, Roar of the World
+1 Arahbo, the First Fang
+1 Arcane Signet
+1 Austere Command
+1 Blackblade Reforged
+1 Bloodforged Battle-Axe
+1 Bronzehide Lion
+1 Buried Ruin
+1 Canopy Vista
+1 Command Tower
+1 Conjurer's Mantle
+1 Dawn of a New Age
+1 Enlightened Ascetic
+1 Entish Restoration
+1 Evolving Wilds
+1 Felidar Cub
+1 Felidar Retreat
+1 Feline Sovereign
+1 Fleecemane Lion
+1 Folk Hero
+11 Forest
+1 Harvest Season
+1 Herd Heirloom
+1 Horn of the Mark
+1 Hunter's Insight
+1 Hunter's Prowess
+1 Jazal Goldmane
+1 Kaheera, the Orphanguard
+1 Keen Sense
+1 Keeper of Fables
+1 King of the Pride
+1 Krosan Verge
+1 Kutzil, Malamet Exemplar
+1 Leonin Relic-Warder
+1 Leonin Skyhunter
+1 Leonin Vanguard
+1 Lion Sash
+1 Loam Lion
+1 Mirari's Wake
+1 Mirri, Weatherlight Duelist
+1 Mosswort Bridge
+1 Myriad Landscape
+1 Nissa's Pilgrimage
+1 Patchwork Banner
+1 Path of Ancestry
+15 Plains
+1 Qasali Ambusher
+1 Qasali Pridemage
+1 Qasali Slingers
+1 Rampant Growth
+1 Reprieve
+1 Rogue's Passage
+1 Rout
+1 Sacred Cat
+1 Savannah Lions
+1 Scythe Leopard
+1 Selesnya Sanctuary
+1 Sixth Sense
+1 Sol Ring
+1 Soul's Majesty
+1 Stalking Leonin
+1 Steppe Lynx
+1 Stirring Wildwood
+1 Storm of Souls
+1 Sword of the Animist
+1 Sword of Vengeance
+1 Terramorphic Expanse
+1 Thought Vessel
+1 Trained Caracal
+1 Traverse the Outlands
+1 White Sun's Zenith
+1 Whitemane Lion
+1 Wild Growth
+1 Wily Bandar`;
+
+        document.getElementById("card-data").value = DEFAULT_CARDS;
 
         // Call on page load
         loadDefaultMechanics();

@@ -2,6 +2,8 @@ Analyze each Magic: The Gathering card and categorize specified mechanics based 
 
 Cards to analyze are listed below.  The format is specified as `Name: card_name. Text: card_text` where card_name is the name of the card and card_text is the oracle text (i.e. the official wording) of the card.  Use the card_text to determine the mechanics and their tiers.
 
+<task>
+CARD_LIST_PLACEHOLDER
 </task>
 
 <mechanics>
