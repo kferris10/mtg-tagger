@@ -1,6 +1,6 @@
 # MTG Tagger
 
-A web app that uses Claude AI to analyze Magic: The Gathering cards for Commander format mechanics and assign tier ratings.
+A web app that uses Claude AI to analyze Magic: The Gathering cards for Commander format mechanics and assign tier ratings.  
 
 Paste your card list, get back a sortable table showing which cards do ramp, card advantage, disruption, and more — each rated from S+ Tier down to D-Tier based on Commander meta relevance.
 
@@ -44,3 +44,10 @@ The app is configured for one-click deploy to [Render](https://render.com) via `
 ## Developer docs
 
 See [CLAUDE.md](CLAUDE.md) for architecture details, environment variable reference, and development commands.
+
+## Credits
+
+- **Built with [Claude Code](https://claude.ai/code)** — AI-assisted development by Anthropic
+- **Analysis powered by [Claude](https://anthropic.com)** (Anthropic) via the Claude API
+- **Card art** courtesy of [Scryfall](https://scryfall.com) — tier list art crops are fetched from the [Scryfall API](https://scryfall.com/docs/api). Card art is © Wizards of the Coast.
+- **Magic: The Gathering** is © Wizards of the Coast. This project is an unofficial fan tool and is not affiliated with or endorsed by Wizards of the Coast.

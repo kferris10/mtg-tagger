@@ -1,10 +1,7 @@
 Analyze each Magic: The Gathering card and categorize specified mechanics based on gameplay mechanics and strategic purposes for the commander format. The list of core mechanics to analyze is provided below. For each card, tag the card mechanics and evaluate using the tiered rating system in <card_tier>. Identify each mechanic that applies to the card and assign it a tier rating based on its power and relevance in the Commander format.
 
-Cards to analyze are provided in the <card_list> list below.  The format is specified as `Name: card_name. Text: card_text` where card_name is the name of the card and card_text is the oracle text (i.e. the official wording) of the card.  Use the card_text to determine the mechanics and their tiers.
+Cards to analyze are listed below.  The format is specified as `Name: card_name. Text: card_text` where card_name is the name of the card and card_text is the oracle text (i.e. the official wording) of the card.  Use the card_text to determine the mechanics and their tiers.
 
-<card_list>
-CARD_LIST_PLACEHOLDER
-</card_list>
 </task>
 
 <mechanics>
@@ -13,7 +10,13 @@ CARD_LIST_PLACEHOLDER
 
 Here are key mechanics I want you to tag.  This is not a comprehensive list of mechanics, I only want you to tag these.  Use only these mechanics and do not add any new ones.
 
-MECHANICS_PLACEHOLDER
+- ramp: Accelerates your mana production (Birds of Paradise, Cultivate, Sol Ring, Dockside Extortionist). Includes treasures, rituals, and other effects which increase the amount of mana you have available.  Does not include mana fixing or untapping effects.
+- card_advantage: Net positive card advantage giving you access to more than one card (Harmonize, Rhystic Study, Mulldrifter).  Does not include cantrips, cycling, card selection, or tutors unless they provide net positive card advantage (i.e. they give you more than one card).
+- targeted_disruption: A single card which removes or interacts with a single target opponent card (Path to Exile, Counterspell, Cyclonic Rift). Includes targeted removal, bounce spells, ability disruption, tap effects, and counterspells.
+- mass_disruption: A single card which affects multiple opponent cards or multiple opponents directly (Wrath of God, Cyclonic Rift, Rest in Peace). Includes mass removal, mass bounce, graveyard hate, and tap effects.
+- go_wide: Card supports a "go_wide" strategy by creating additional tokens or creates.
+- anthem: increases toughness or power of all creatures in the commander deck.
+- overrun: Provides buffs to (multiple) creatures strength, power, evasivenss or ability to get through, enabling a large number of creatures to do a high level of damage
 </mechanics>
 
 <card_tier>
@@ -90,6 +93,8 @@ Before finalizing tags, verify:
 ## Examples
 
 Example output should look like the following: note there is no explanatory text, just the JSON output. Use the exact mechanic names specified in <mechanics> and the exact tier names specified in <card_tier>.
+
+Note that these examples only tag for the ramp, card_advantage, targeted_disruption, and mass_disruption mechanics.  If the user enters additional mechanics, they will not be present here - you should still tag them in your result.  Example: if the user enters go_wide as a mechanic "Ranar the Ever-Watchful" should be tagged as "go_wide": "B-Tier"
 <example_output>
 {
    "Ranar the Ever-Watchful": {},
