@@ -2,6 +2,8 @@
 
 import importlib
 import json
+import os
+import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,31 +29,9 @@ def _mock_anthropic_response(text):
 
 
 class TestAnalyzeAuthentication:
-    """Verify that /analyze handles API keys from multiple sources with correct priority."""
+    """Verify that /analyze uses the server-side ANTHROPIC_API_KEY."""
 
-    @patch("app.anthropic.Anthropic")
-    def test_uses_user_provided_key(self, MockAnthropic):
-        """User-provided API key should be used when present."""
-        app, _ = _make_app(env_key="sk-ant-env-key")
-        mock_client = MagicMock()
-        MockAnthropic.return_value = mock_client
-        mock_client.messages.create.return_value = _mock_anthropic_response(
-            '{"cards": []}'
-        )
-
-        with app.test_client() as c:
-            resp = c.post(
-                "/analyze",
-                json={
-                    "card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}.",
-                    "api_key": "sk-ant-user-key"
-                },
-            )
-            assert resp.status_code == 200
-            # Should use user-provided key, not env key
-            MockAnthropic.assert_called_once_with(api_key="sk-ant-user-key")
-
-    @patch("app.anthropic.Anthropic")
+    @patch("claude_utils.anthropic.Anthropic")
     @patch("app.os.environ.get")
     def test_uses_env_key_as_fallback(self, mock_env_get, MockAnthropic):
         """Env var API key should be used when no user key provided."""
@@ -77,32 +57,9 @@ class TestAnalyzeAuthentication:
             assert resp.status_code == 200
             MockAnthropic.assert_called_once_with(api_key="sk-ant-env-key")
 
-    @patch("app.anthropic.Anthropic")
-    def test_user_key_overrides_env_key(self, MockAnthropic):
-        """User-provided key should take priority over env var."""
-        app, _ = _make_app(env_key="sk-ant-env-key")
-        mock_client = MagicMock()
-        MockAnthropic.return_value = mock_client
-        mock_client.messages.create.return_value = _mock_anthropic_response(
-            '{"cards": []}'
-        )
-
-        with app.test_client() as c:
-            resp = c.post(
-                "/analyze",
-                json={
-                    "card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}.",
-                    "api_key": "sk-ant-override-key"
-                },
-            )
-            assert resp.status_code == 200
-            # Should use user key, not env var
-            MockAnthropic.assert_called_once_with(api_key="sk-ant-override-key")
-
     @patch("app.os.environ.get")
-    def test_returns_401_when_no_api_key(self, mock_env_get):
-        """Should return 401 when no API key provided from any source."""
-        # Mock environment to return empty string for API key
+    def test_returns_500_when_no_api_key(self, mock_env_get):
+        """Should return 500 when server-side API key is not configured."""
         def env_side_effect(key, default=""):
             if key == "ANTHROPIC_API_KEY":
                 return ""
@@ -115,13 +72,12 @@ class TestAnalyzeAuthentication:
                 "/analyze",
                 json={"card_data": "Name: Sol Ring. Text: {T}: Add {C}{C}."},
             )
-            assert resp.status_code == 401
+            assert resp.status_code == 500
             error = resp.get_json()["error"]
-            assert "No API key provided" in error
             assert "ANTHROPIC_API_KEY" in error
 
     @patch("app.os.environ.get")
-    @patch("app.anthropic.Anthropic")
+    @patch("claude_utils.anthropic.Anthropic")
     def test_empty_user_key_falls_back_to_env(self, MockAnthropic, mock_env_get):
         """Empty string for user key should fall back to env var."""
         # Mock environment to return specific key
@@ -179,14 +135,6 @@ class TestIndexRoute:
             assert resp.status_code == 200
             assert b"MTG Tagger" in resp.data
 
-    def test_index_has_api_key_field(self):
-        """The page should contain an API key input field."""
-        app, _ = _make_app(env_key="")
-        with app.test_client() as c:
-            resp = c.get("/")
-            assert b'id="api-key"' in resp.data
-            assert b'type="password"' in resp.data
-
     def test_index_contains_results_structure(self):
         """The page should contain the dashboard layout and sortable results table UI elements."""
         import os
@@ -234,7 +182,7 @@ class TestIndexRoute:
 class TestAnalyzeResponseShape:
     """Verify /analyze returns the right shape for the frontend renderResults."""
 
-    @patch("app.anthropic.Anthropic")
+    @patch("claude_utils.anthropic.Anthropic")
     def test_json_result_returned_as_object(self, MockAnthropic):
         """When the API returns valid JSON, result should be a parsed object."""
         app, _ = _make_app(env_key="sk-ant-env-key")
@@ -258,7 +206,7 @@ class TestAnalyzeResponseShape:
             assert data["result"]["Sol Ring"]["ramp"] == "S+ Tier"
             assert data["result"]["Savannah Lions"] == {}
 
-    @patch("app.anthropic.Anthropic")
+    @patch("claude_utils.anthropic.Anthropic")
     def test_json_in_code_fence_parsed_correctly(self, MockAnthropic):
         """When the API wraps JSON in markdown code fences, it should still parse."""
         app, _ = _make_app(env_key="sk-ant-env-key")
@@ -277,7 +225,7 @@ class TestAnalyzeResponseShape:
             assert isinstance(data["result"], dict)
             assert data["result"]["Sol Ring"]["ramp"] == "S+ Tier"
 
-    @patch("app.anthropic.Anthropic")
+    @patch("claude_utils.anthropic.Anthropic")
     def test_non_json_result_returned_as_string(self, MockAnthropic):
         """When the API returns non-JSON text, result should be a raw string."""
         app, _ = _make_app(env_key="sk-ant-env-key")
@@ -305,7 +253,7 @@ class TestAnalyzeCustomMechanics:
     """Verify /analyze accepts and uses custom mechanics."""
 
     @patch("app.os.environ.get")
-    @patch("app.anthropic.Anthropic")
+    @patch("claude_utils.anthropic.Anthropic")
     def test_uses_custom_mechanics(self, MockAnthropic, mock_env_get):
         """Custom mechanics should be substituted into prompt."""
         def env_side_effect(key, default=""):
@@ -340,7 +288,7 @@ class TestAnalyzeCustomMechanics:
             assert "MECHANICS_PLACEHOLDER" not in prompt
 
     @patch("app.os.environ.get")
-    @patch("app.anthropic.Anthropic")
+    @patch("claude_utils.anthropic.Anthropic")
     def test_uses_default_mechanics_when_not_provided(self, MockAnthropic, mock_env_get):
         """Should use DEFAULT_MECHANICS when mechanics not in request."""
         def env_side_effect(key, default=""):
@@ -369,7 +317,7 @@ class TestAnalyzeCustomMechanics:
             assert "MECHANICS_PLACEHOLDER" not in prompt
 
     @patch("app.os.environ.get")
-    @patch("app.anthropic.Anthropic")
+    @patch("claude_utils.anthropic.Anthropic")
     def test_empty_mechanics_falls_back_to_defaults(self, MockAnthropic, mock_env_get):
         """Empty string for mechanics should fall back to defaults."""
         def env_side_effect(key, default=""):
@@ -429,3 +377,162 @@ class TestDefaultMechanicsEndpoint:
             assert mechanics.startswith("- ")
             # Should contain multiple mechanics
             assert mechanics.count("\n- ") >= 5
+
+
+# ---------- POST /analyze — model and prompt overrides ----------
+
+
+class TestAnalyzeModelAndPromptOverrides:
+    """Verify /analyze handles model and prompt template overrides."""
+
+    _CARD = "Name: Sol Ring. Text: {T}: Add {C}{C}."
+    _TEMPLATE = "CARD_LIST_PLACEHOLDER\nMECHANICS_PLACEHOLDER"
+
+    def _patched_app(self):
+        """Return (flask_app, module) with env patched for API key."""
+        with patch("app.os.environ.get") as mock_env:
+            def side(key, default=""):
+                if key == "ANTHROPIC_API_KEY":
+                    return "sk-ant-test-key"
+                return default
+            mock_env.side_effect = side
+            return _make_app()
+
+    @patch("claude_utils.anthropic.Anthropic")
+    def test_model_override_passed_to_api(self, MockAnthropic):
+        """model field should be forwarded to messages.create."""
+        flask_app, _ = self._patched_app()
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response('{"cards": []}')
+
+        with flask_app.test_client() as c:
+            resp = c.post("/analyze", json={
+                "card_data": self._CARD,
+                "model": "claude-opus-4-6",
+            })
+            assert resp.status_code == 200
+            call_kwargs = mock_client.messages.create.call_args.kwargs
+            assert call_kwargs["model"] == "claude-opus-4-6"
+
+    @patch("claude_utils.anthropic.Anthropic")
+    def test_default_model_used_when_not_provided(self, MockAnthropic):
+        """Default model should be used when model not in request."""
+        from claude_utils import DEFAULT_MODEL
+        flask_app, _ = self._patched_app()
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response('{"cards": []}')
+
+        with flask_app.test_client() as c:
+            resp = c.post("/analyze", json={"card_data": self._CARD})
+            assert resp.status_code == 200
+            call_kwargs = mock_client.messages.create.call_args.kwargs
+            assert call_kwargs["model"] == DEFAULT_MODEL
+
+    @patch("claude_utils.anthropic.Anthropic")
+    def test_empty_model_falls_back_to_default(self, MockAnthropic):
+        """Empty model string should fall back to DEFAULT_MODEL."""
+        from claude_utils import DEFAULT_MODEL
+        flask_app, _ = self._patched_app()
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response('{"cards": []}')
+
+        with flask_app.test_client() as c:
+            resp = c.post("/analyze", json={"card_data": self._CARD, "model": ""})
+            assert resp.status_code == 200
+            call_kwargs = mock_client.messages.create.call_args.kwargs
+            assert call_kwargs["model"] == DEFAULT_MODEL
+
+    @patch("claude_utils.anthropic.Anthropic")
+    def test_model_used_echoed_in_response(self, MockAnthropic):
+        """Response should include model_used field."""
+        flask_app, _ = self._patched_app()
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response('{"cards": []}')
+
+        with flask_app.test_client() as c:
+            resp = c.post("/analyze", json={
+                "card_data": self._CARD,
+                "model": "claude-opus-4-6",
+            })
+            assert resp.status_code == 200
+            assert resp.get_json()["model_used"] == "claude-opus-4-6"
+
+    @patch("claude_utils.anthropic.Anthropic")
+    def test_prompt_template_overrides_default(self, MockAnthropic):
+        """prompt_template field should replace the default PROMPT_TEMPLATE."""
+        flask_app, _ = self._patched_app()
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response('{"cards": []}')
+
+        with flask_app.test_client() as c:
+            resp = c.post("/analyze", json={
+                "card_data": self._CARD,
+                "prompt_template": self._TEMPLATE,
+            })
+            assert resp.status_code == 200
+            prompt_sent = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+            assert "CARD_LIST_PLACEHOLDER" not in prompt_sent
+            assert "MECHANICS_PLACEHOLDER" not in prompt_sent
+            assert self._CARD in prompt_sent
+
+    def test_prompt_template_and_prompt_file_together_returns_400(self):
+        """Providing both prompt_template and prompt_file should return 400."""
+        flask_app, _ = self._patched_app()
+        with flask_app.test_client() as c:
+            resp = c.post("/analyze", json={
+                "card_data": self._CARD,
+                "prompt_template": self._TEMPLATE,
+                "prompt_file": "some_file",
+            })
+            assert resp.status_code == 400
+
+    @patch("claude_utils.anthropic.Anthropic")
+    def test_prompt_file_loads_from_prompts_dir(self, MockAnthropic):
+        """prompt_file should load <name>.md from the prompts/ directory."""
+        flask_app, app_module = self._patched_app()
+        mock_client = MagicMock()
+        MockAnthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_anthropic_response('{"cards": []}')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_template = "CUSTOM CARD_LIST_PLACEHOLDER MECHANICS_PLACEHOLDER"
+            prompt_file_path = os.path.join(tmpdir, "variant.md")
+            with open(prompt_file_path, "w") as f:
+                f.write(test_template)
+
+            app_module.PROMPTS_DIR = tmpdir
+            with flask_app.test_client() as c:
+                resp = c.post("/analyze", json={
+                    "card_data": self._CARD,
+                    "prompt_file": "variant",
+                })
+                assert resp.status_code == 200
+                prompt_sent = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+                assert "CUSTOM" in prompt_sent
+
+    def test_prompt_file_not_found_returns_404(self):
+        """Non-existent prompt_file should return 404."""
+        flask_app, app_module = self._patched_app()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app_module.PROMPTS_DIR = tmpdir
+            with flask_app.test_client() as c:
+                resp = c.post("/analyze", json={
+                    "card_data": self._CARD,
+                    "prompt_file": "doesnotexist",
+                })
+                assert resp.status_code == 404
+
+    def test_path_traversal_in_prompt_file_returns_400(self):
+        """Path traversal attempt in prompt_file should return 400."""
+        flask_app, _ = self._patched_app()
+        with flask_app.test_client() as c:
+            resp = c.post("/analyze", json={
+                "card_data": self._CARD,
+                "prompt_file": "../app",
+            })
+            assert resp.status_code == 400
