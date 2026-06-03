@@ -28,7 +28,7 @@ def parse_claude_response(raw_text: str):
         return raw_text
 
 
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "claude-opus-4-8"
 
 
 def call_claude(api_key: str, prompt: str, model: str = DEFAULT_MODEL):

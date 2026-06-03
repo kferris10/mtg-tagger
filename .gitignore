@@ -4,6 +4,11 @@
 # user settings
 .claude/
 
+# outputs
+*.html
+*.csv
+*.json
+
 # gitignore template -------------
 
 # Byte-compiled / optimized / DLL files
