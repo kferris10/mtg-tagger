@@ -1,0 +1,16 @@
+- ramp: Accelerates your mana production (Birds of Paradise, Cultivate, Sol Ring, Dockside Extortionist). Includes treasures, rituals, and other effects which increase the amount of mana you have available.  Does not include mana fixing or untapping effects.
+- card_advantage: Net positive card advantage giving you access to more than one card (Harmonize, Rhystic Study, Mulldrifter).  Does not include cantrips, cycling, card selection, or tutors unless they provide net positive card advantage (i.e. they give you more than one card).
+- targeted_disruption: A single card which removes or interacts with a single target opponent card (Path to Exile, Counterspell, Cyclonic Rift). Includes targeted removal, bounce spells, ability disruption, tap effects, and counterspells.
+- mass_disruption: A single card which affects multiple opponent cards or multiple opponents directly (Wrath of God, Cyclonic Rift, Rest in Peace). Includes mass removal, mass bounce, graveyard hate, and tap effects.
+- go_wide: Card supports a "go_wide" strategy by creating additional tokens or creates.
+- anthem: increases toughness or power of all creatures in the commander deck.
+- overrun: Provides buffs to (multiple) creatures strength, power, evasivenss or ability to get through, enabling a large number of creatures to do a high level of damage
+- go_tall: Increase a single creature's power or toughness
+- equipment_tutor: search for equipment cards, stronger if the cards go directly onto the battlefield
+- cheat_equip_cost: allow equipment to be attached directly to a creature for free, reduced, or other bonus cost
+- get_through: trample, evasion, or other effects which allow a creature to get through defenders or otherwise discourage blocking
+- protection: indestructible, shroud, or other effects which protect a creature(s)
+- etb_effects: effects which provide value when the card enters the battlefield
+- blink_flicker: temporarily removes a creature and returns it to the battlefield
+- mana_sink: abilities which convert extra mana into value
+- goad: force opponent's creatures to attack, preferably someone other than you

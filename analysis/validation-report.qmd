@@ -1,0 +1,88 @@
+---
+title: "Tagging Results"
+format: 
+  html:
+    toc: true
+    code-fold: true
+editor: source
+---
+
+```{r setup, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+options(stringsAsFactors = F, digits = 3)
+library(tidyverse)
+library(knitr)
+library(jsonlite)
+```
+
+
+```{r data}
+claude_tags <- fromJSON("tags-sonnet-46.json")
+df_claude <- tibble(
+    name = names(claude_tags),
+    data = claude_tags
+) %>%
+  unnest_longer(data) %>% 
+  rename(claude_tag = data_id, claude_tier = data)
+
+df <- read_csv("tags-labeled - KF.csv")
+df_split <- df %>% 
+  mutate(
+    tags = map(collapsed, ~ unlist(str_split(.x, ";"))), 
+    KF_tags = map(KF, ~ unlist(str_split(.x, ";"))), 
+    tags = map(tags, str_trim), 
+    KF_tags = map(KF_tags, str_trim)
+    )
+# df_claude <- df_split %>%
+#   select(name, tags) %>%
+#   unnest(tags) %>% 
+#   separate(tags, c("claude_tag", "claude_tier"), ": ")
+df_kf <- df_split %>%
+  select(name, KF_tags) %>%
+  unnest(KF_tags)%>% 
+  filter(KF_tags != "") %>% 
+  separate(KF_tags, c("kf_tag", "kf_tier"), ": ")
+
+df_compare <- full_join(
+  df_kf, 
+  df_claude, 
+  by = c("name", "kf_tag" = "claude_tag")
+) %>% 
+  filter(!is.na(kf_tag))
+df_compare_veggies <- df_compare %>% 
+  filter(kf_tag %in% c("ramp", "card_advantage", "targeted_disruption", "mass_disruption"))
+```
+
+## Mechanic Tagging
+
+Overall tagging accuracy is `r mean(is.na(df_compare$kf_tier) == is.na(df_compare$claude_tier))`.  Accuracy for the veggies categories is `r mean(is.na(df_compare_veggies$kf_tier) == is.na(df_compare_veggies$claude_tier))`.
+
+```{r}
+df_compare %>% 
+  group_by(mechanic = kf_tag) %>% 
+  summarise(
+    n = n(), 
+    accuracy = mean(is.na(kf_tier) == is.na(claude_tier)), 
+    .groups = "drop"
+  ) %>% 
+  arrange(desc(n)) %>% 
+  kable()
+```
+
+
+## Tier Tagging
+
+Overall tagging accuracy is `r mean(df_compare$kf_tier == df_compare$claude_tier, na.rm = T)`.  Accuracy for the veggies categories is `r mean(df_compare_veggies$kf_tier == df_compare_veggies$claude_tier, na.rm = T)`.
+
+```{r}
+df_compare %>% 
+  filter(!is.na(kf_tier), !is.na(claude_tier)) %>% 
+  group_by(mechanic = kf_tag) %>% 
+  summarise(
+    n = n(), 
+    accuracy = mean(kf_tier == claude_tier), 
+    .groups = "drop"
+  ) %>% 
+  arrange(desc(n)) %>% 
+  kable()
+```

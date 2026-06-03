@@ -1,0 +1,214 @@
+---
+title: "Prompt Accuracy Report"
+format:
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+editor: source
+params:
+  prompt_file: "prompts/prompt.md"
+  model_filter: "claude-sonnet-4-20250514"
+---
+
+```{r setup, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+options(stringsAsFactors = FALSE, digits = 3)
+library(tidyverse)
+library(knitr)
+library(DBI)
+library(RPostgres)
+```
+
+```{r data}
+prompt_file  <- params$prompt_file
+model_filter <- params$model_filter
+veggies <- c("ramp", "card_advantage", "targeted_disruption", "mass_disruption")
+
+# --- Pull Claude results from PostgreSQL ---
+con <- DBI::dbConnect(
+  RPostgres::Postgres(),
+  host     = Sys.getenv("DB_HOST"),
+  port     = as.integer(Sys.getenv("DB_PORT")),
+  user     = Sys.getenv("DB_USER"),
+  password = Sys.getenv("DB_PASSWORD"),
+  dbname   = "mtgcards"
+)
+
+df_claude <- DBI::dbGetQuery(con, "
+  SELECT
+    card_name,
+    key   AS mechanic,
+    value AS claude_tier
+  FROM public.labeled,
+  jsonb_each_text(raw_json - 'card_name')
+  WHERE prompt_file = $1
+    AND model = $2
+", params = list(prompt_file, model_filter)) |>
+  tibble::as_tibble() |>
+  filter(mechanic %in% veggies)
+
+DBI::dbDisconnect(con)
+
+# --- Load KF ground-truth labels ---
+df_kf_raw <- read_csv("tags-labeled - KF.csv")
+
+df_kf <- df_kf_raw |>
+  mutate(KF_tags = map(KF, ~ str_trim(unlist(str_split(.x, ";"))))) |>
+  select(name, KF_tags) |>
+  unnest(KF_tags) |>
+  filter(KF_tags != "", !is.na(KF_tags)) |>
+  separate(KF_tags, into = c("kf_tag", "kf_tier"), sep = ": ", extra = "merge") |>
+  filter(kf_tag %in% veggies)
+
+# Cards tagged by BOTH KF and Claude (for at least one veggie mechanic)
+both_tagged_cards <- intersect(
+  unique(df_kf$name),
+  unique(df_claude$card_name)
+)
+
+# --- Join (restricted to cards both sides tagged) ---
+# Full join so we capture:
+#   - KF tagged, Claude tagged   (both tiers present)
+#   - KF tagged, Claude missed   (claude_tier NA)
+#   - KF did NOT tag, Claude tagged (kf_tier NA) — false positives
+df_compare <- full_join(
+  df_kf  |> filter(name %in% both_tagged_cards),
+  df_claude |> filter(card_name %in% both_tagged_cards),
+  by = c("name" = "card_name", "kf_tag" = "mechanic")
+)
+
+# Rows where KF had an opinion
+df_kf_has_tag    <- df_compare |> filter(!is.na(kf_tag))
+# False positives: Claude tagged, KF did not
+df_false_pos     <- df_compare |> filter(is.na(kf_tag), !is.na(claude_tier))
+```
+
+## Overview
+
+Prompt: `r prompt_file` | Model: `r model_filter`
+
+```{r overview}
+tibble(
+  metric = c(
+    "Cards tagged by both KF and Claude",
+    "KF mechanic tags (veggies, shared cards)",
+    "Claude mechanic tags (veggies, shared cards)"
+  ),
+  value = c(
+    length(both_tagged_cards),
+    nrow(df_kf   |> filter(name %in% both_tagged_cards)),
+    nrow(df_claude |> filter(card_name %in% both_tagged_cards))
+  )
+) |> kable()
+```
+
+## Mechanic Detection Accuracy
+
+For each of the four core mechanics, did Claude tag the cards KF tagged?  Overall accuracy `r mean(is.na(df_kf_has_tag$kf_tier) == is.na(df_kf_has_tag$claude_tier)) |> round(3)`
+
+*Recall* = fraction of KF-tagged card/mechanic pairs that Claude also tagged.
+*Precision* = fraction of Claude-tagged pairs that KF also tagged (among reviewed cards).
+
+```{r detection}
+recall_tbl <- df_kf_has_tag |>
+  group_by(mechanic = kf_tag) |>
+  summarise(
+    kf_tags      = n(),
+    claude_tagged = sum(!is.na(claude_tier)),
+    accuracy = mean(is.na(kf_tier) == is.na(claude_tier)), 
+    recall       = mean(!is.na(claude_tier)),
+    .groups = "drop"
+  )
+
+precision_tbl <- df_compare |>
+  filter(!is.na(claude_tier)) |>
+  group_by(mechanic = kf_tag) |>
+  summarise(
+    claude_tags    = n(),
+    kf_confirmed   = sum(!is.na(kf_tier)),
+    precision      = mean(!is.na(kf_tier)),
+    .groups = "drop"
+  ) |>
+  filter(!is.na(mechanic))
+
+left_join(recall_tbl, precision_tbl, by = "mechanic") |>
+  arrange(desc(kf_tags)) |>
+  kable()
+```
+
+## Mislabeled Categories
+
+Cards where Claude and KF disagree on whether a mechanic applies at all.
+
+```{r mislabeled}
+# False negatives: KF tagged the mechanic, Claude didn't
+df_fn <- df_kf_has_tag |>
+  filter(is.na(claude_tier)) |>
+  transmute(card = name, mechanic = kf_tag, kf = kf_tier, claude = "(not tagged)")
+
+# False positives: Claude tagged the mechanic, KF didn't
+df_fp <- df_claude |>
+  filter(card_name %in% both_tagged_cards) |>
+  anti_join(df_kf, by = c("card_name" = "name", "mechanic" = "kf_tag")) |>
+  transmute(card = card_name, mechanic, kf = "(not tagged)", claude = claude_tier)
+
+bind_rows(df_fn, df_fp) |>
+  arrange(card, mechanic) |>
+  kable()
+```
+
+## Tier Accuracy
+
+Among cards where both KF and Claude agreed the mechanic applies, how often did they assign the same tier?
+
+Overall tier accuracy (veggies): `r mean(df_kf_has_tag$kf_tier == df_kf_has_tag$claude_tier, na.rm = TRUE) |> round(3)`
+
+```{r tier-accuracy}
+df_kf_has_tag |>
+  filter(!is.na(kf_tier), !is.na(claude_tier)) |>
+  group_by(mechanic = kf_tag) |>
+  summarise(
+    n            = n(),
+    tier_accuracy = mean(kf_tier == claude_tier),
+    .groups = "drop"
+  ) |>
+  arrange(desc(n)) |>
+  kable()
+```
+
+## Tier Confusion
+
+Where Claude and KF both tagged a mechanic but assigned different tiers, what did each assign?
+
+```{r tier-confusion}
+df_kf_has_tag |>
+  filter(!is.na(kf_tier), !is.na(claude_tier), kf_tier != claude_tier) |>
+  count(mechanic = kf_tag, kf_tier, claude_tier) |>
+  arrange(mechanic, desc(n)) |>
+  kable()
+```
+
+## False Negatives
+
+Cards KF tagged that Claude missed (by mechanic).
+
+```{r false-negatives}
+df_kf_has_tag |>
+  filter(is.na(claude_tier)) |>
+  select(card = name, mechanic = kf_tag, kf_tier) |>
+  arrange(mechanic, card) |>
+  kable()
+```
+
+## False Positives
+
+Cards Claude tagged that KF did not (among reviewed cards).
+
+```{r false-positives}
+df_compare |>
+  filter(!is.na(claude_tier), is.na(kf_tag)) |>
+  select(card = name, mechanic = kf_tag, claude_tier) |>
+  arrange(claude_tier, card) |>
+  kable()
+```
