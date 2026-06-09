@@ -7,17 +7,35 @@ format:
     embed-resources: true
 editor: source
 params:
-  prompt_file: "prompts/prompt.md"
-  model_filter: "claude-sonnet-4-20250514"
+  prompt_file: "prompts/prompt4.md"
+  model_filter: "claude-opus-4-8"
 ---
 
 ```{r setup, warning=FALSE, message=FALSE}
 knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 options(stringsAsFactors = FALSE, digits = 3)
 library(tidyverse)
-library(knitr)
+library(jsonlite)
 library(DBI)
-library(RPostgres)
+library(knitr)
+
+query_postgres <- function(query, ...) {
+  
+  # --- Pull Claude results from PostgreSQL ---
+  con <- DBI::dbConnect(
+    RPostgres::Postgres(),
+    host     = Sys.getenv("DB_HOST"),
+    port     = as.integer(Sys.getenv("DB_PORT")),
+    user     = Sys.getenv("DB_USER"),
+    password = Sys.getenv("DB_PASSWORD"),
+    dbname   = "mtgcards"
+  )
+  
+  df <- DBI::dbGetQuery(con, query, ...)
+  
+  DBI::dbDisconnect(con)
+  tibble::tibble(df)
+}
 ```
 
 ```{r data}
@@ -26,189 +44,144 @@ model_filter <- params$model_filter
 veggies <- c("ramp", "card_advantage", "targeted_disruption", "mass_disruption")
 
 # --- Pull Claude results from PostgreSQL ---
-con <- DBI::dbConnect(
-  RPostgres::Postgres(),
-  host     = Sys.getenv("DB_HOST"),
-  port     = as.integer(Sys.getenv("DB_PORT")),
-  user     = Sys.getenv("DB_USER"),
-  password = Sys.getenv("DB_PASSWORD"),
-  dbname   = "mtgcards"
-)
-
-df_claude <- DBI::dbGetQuery(con, "
-  SELECT
-    card_name,
-    key   AS mechanic,
-    value AS claude_tier
-  FROM public.labeled,
-  jsonb_each_text(raw_json - 'card_name')
-  WHERE prompt_file = $1
-    AND model = $2
-", params = list(prompt_file, model_filter)) |>
-  tibble::as_tibble() |>
-  filter(mechanic %in% veggies)
-
-DBI::dbDisconnect(con)
+df_claude <- query_postgres("
+select card_name, raw_json
+from public.labeled
+where prompt_file = $1
+  and model = $2
+", params = list(prompt_file, model_filter)) 
+df_claude_tags <- df_claude %>% 
+  mutate(raw_json = map(as.character(raw_json), fromJSON)) %>%
+  unnest_longer(raw_json, indices_to = "category", values_to = "tier") %>% 
+  filter(category != "card_name") %>% 
+  select(card_name, category, tier)
 
 # --- Load KF ground-truth labels ---
-df_kf_raw <- read_csv("tags-labeled - KF.csv")
+df_kf <- query_postgres("
+select card_name, kf
+from public.labeled_kf_final
+")
+df_kf_tags <- df_kf %>% 
+  mutate(kf = map(as.character(kf), fromJSON)) %>%
+  unnest_longer(kf, indices_to = "category", values_to = "tier")
 
-df_kf <- df_kf_raw |>
-  mutate(KF_tags = map(KF, ~ str_trim(unlist(str_split(.x, ";"))))) |>
-  select(name, KF_tags) |>
-  unnest(KF_tags) |>
-  filter(KF_tags != "", !is.na(KF_tags)) |>
-  separate(KF_tags, into = c("kf_tag", "kf_tier"), sep = ": ", extra = "merge") |>
-  filter(kf_tag %in% veggies)
+# dataset with rankings of both
+df_cards <- df_claude %>% inner_join(df_kf, by = c("card_name"))
+df_tags <- df_claude_tags %>% 
+  full_join(df_kf_tags, by = c("card_name", "category"), suffix = c("_claude", "_kf")) %>% 
+  filter(card_name %in% df_cards$card_name)
+df_tags_veggies <- df_tags |> filter(category %in% veggies)
 
-# Cards tagged by BOTH KF and Claude (for at least one veggie mechanic)
-both_tagged_cards <- intersect(
-  unique(df_kf$name),
-  unique(df_claude$card_name)
-)
-
-# --- Join (restricted to cards both sides tagged) ---
-# Full join so we capture:
-#   - KF tagged, Claude tagged   (both tiers present)
-#   - KF tagged, Claude missed   (claude_tier NA)
-#   - KF did NOT tag, Claude tagged (kf_tier NA) — false positives
-df_compare <- full_join(
-  df_kf  |> filter(name %in% both_tagged_cards),
-  df_claude |> filter(card_name %in% both_tagged_cards),
-  by = c("name" = "card_name", "kf_tag" = "mechanic")
-)
-
-# Rows where KF had an opinion
-df_kf_has_tag    <- df_compare |> filter(!is.na(kf_tag))
-# False positives: Claude tagged, KF did not
-df_false_pos     <- df_compare |> filter(is.na(kf_tag), !is.na(claude_tier))
+# list of valid mechanics
+df_mechanics <- df_tags |> count(category, sort = T)
 ```
 
 ## Overview
 
-Prompt: `r prompt_file` | Model: `r model_filter`
+Prompt: `r prompt_file` | Model: `r model_filter`.
+
+For each of the categories, did Claude tag the cards KF tagged?  Overall accuracy `r mean(is.na(df_tags$tier_kf) == is.na(df_tags$tier_claude)) |> round(3)`.  Veggies only accuracy `r mean(is.na(df_tags_veggies$tier_kf) == is.na(df_tags_veggies$tier_claude)) |> round(3)`.
+
+Among cards where both KF and Claude agreed the mechanic applies, how often did they assign the same tier?  Overall accuracy `r mean(df_tags$tier_kf == df_tags$tier_claude, na.rm = T) |> round(3)`.  Veggies only accuracy `r mean(df_tags_veggies$tier_kf == df_tags_veggies$tier_claude, na.rm = T) |> round(3)`.
 
 ```{r overview}
 tibble(
   metric = c(
     "Cards tagged by both KF and Claude",
+    "KF mechanic tags (all categories, shared cards)",
+    "Claude mechanic tags (all categories, shared cards)",
     "KF mechanic tags (veggies, shared cards)",
     "Claude mechanic tags (veggies, shared cards)"
   ),
   value = c(
-    length(both_tagged_cards),
-    nrow(df_kf   |> filter(name %in% both_tagged_cards)),
-    nrow(df_claude |> filter(card_name %in% both_tagged_cards))
+    nrow(df_cards),
+    nrow(df_tags   |> filter(!is.na(tier_kf))),
+    nrow(df_tags |> filter(!is.na(tier_claude))),
+    nrow(df_tags_veggies   |> filter(!is.na(tier_kf))),
+    nrow(df_tags_veggies |> filter(!is.na(tier_claude)))
   )
 ) |> kable()
 ```
 
 ## Mechanic Detection Accuracy
 
-For each of the four core mechanics, did Claude tag the cards KF tagged?  Overall accuracy `r mean(is.na(df_kf_has_tag$kf_tier) == is.na(df_kf_has_tag$claude_tier)) |> round(3)`
-
-*Recall* = fraction of KF-tagged card/mechanic pairs that Claude also tagged.
-*Precision* = fraction of Claude-tagged pairs that KF also tagged (among reviewed cards).
+For each of the categories, did Claude tag the cards KF tagged?  Overall accuracy `r mean(is.na(df_tags$tier_kf) == is.na(df_tags$tier_claude)) |> round(3)`.  Veggies only accuracy `r mean(is.na(df_tags_veggies$tier_kf) == is.na(df_tags_veggies$tier_claude)) |> round(3)`.
 
 ```{r detection}
-recall_tbl <- df_kf_has_tag |>
-  group_by(mechanic = kf_tag) |>
+df_tags %>% 
+  group_by(category) %>% 
   summarise(
-    kf_tags      = n(),
-    claude_tagged = sum(!is.na(claude_tier)),
-    accuracy = mean(is.na(kf_tier) == is.na(claude_tier)), 
-    recall       = mean(!is.na(claude_tier)),
-    .groups = "drop"
-  )
-
-precision_tbl <- df_compare |>
-  filter(!is.na(claude_tier)) |>
-  group_by(mechanic = kf_tag) |>
-  summarise(
-    claude_tags    = n(),
-    kf_confirmed   = sum(!is.na(kf_tier)),
-    precision      = mean(!is.na(kf_tier)),
-    .groups = "drop"
-  ) |>
-  filter(!is.na(mechanic))
-
-left_join(recall_tbl, precision_tbl, by = "mechanic") |>
-  arrange(desc(kf_tags)) |>
-  kable()
-```
-
-## Mislabeled Categories
-
-Cards where Claude and KF disagree on whether a mechanic applies at all.
-
-```{r mislabeled}
-# False negatives: KF tagged the mechanic, Claude didn't
-df_fn <- df_kf_has_tag |>
-  filter(is.na(claude_tier)) |>
-  transmute(card = name, mechanic = kf_tag, kf = kf_tier, claude = "(not tagged)")
-
-# False positives: Claude tagged the mechanic, KF didn't
-df_fp <- df_claude |>
-  filter(card_name %in% both_tagged_cards) |>
-  anti_join(df_kf, by = c("card_name" = "name", "mechanic" = "kf_tag")) |>
-  transmute(card = card_name, mechanic, kf = "(not tagged)", claude = claude_tier)
-
-bind_rows(df_fn, df_fp) |>
-  arrange(card, mechanic) |>
+    n = n(), 
+    n_kf = sum(!is.na(tier_kf)), 
+    n_claude = sum(!is.na(tier_claude)), 
+    accuracy = mean(!is.na(tier_kf) == !is.na(tier_claude))
+  ) %>% 
+  arrange(desc(n)) |>
   kable()
 ```
 
 ## Tier Accuracy
 
-Among cards where both KF and Claude agreed the mechanic applies, how often did they assign the same tier?
-
-Overall tier accuracy (veggies): `r mean(df_kf_has_tag$kf_tier == df_kf_has_tag$claude_tier, na.rm = TRUE) |> round(3)`
+Among cards where both KF and Claude agreed the mechanic applies, how often did they assign the same tier?  Overall accuracy `r mean(df_tags$tier_kf == df_tags$tier_claude, na.rm = T) |> round(3)`.  Veggies only accuracy `r mean(df_tags_veggies$tier_kf == df_tags_veggies$tier_claude, na.rm = T) |> round(3)`.
 
 ```{r tier-accuracy}
-df_kf_has_tag |>
-  filter(!is.na(kf_tier), !is.na(claude_tier)) |>
-  group_by(mechanic = kf_tag) |>
+df_tags %>% 
+  filter(!is.na(tier_kf), !is.na(tier_claude)) |>
+  group_by(category) %>% 
   summarise(
-    n            = n(),
-    tier_accuracy = mean(kf_tier == claude_tier),
-    .groups = "drop"
-  ) |>
+    n = n(), 
+    tier_accuracy = mean(tier_kf == tier_claude),
+  ) %>% 
   arrange(desc(n)) |>
-  kable()
-```
-
-## Tier Confusion
-
-Where Claude and KF both tagged a mechanic but assigned different tiers, what did each assign?
-
-```{r tier-confusion}
-df_kf_has_tag |>
-  filter(!is.na(kf_tier), !is.na(claude_tier), kf_tier != claude_tier) |>
-  count(mechanic = kf_tag, kf_tier, claude_tier) |>
-  arrange(mechanic, desc(n)) |>
   kable()
 ```
 
 ## False Negatives
 
-Cards KF tagged that Claude missed (by mechanic).
+Cards KF tagged that Claude missed, grouped by mechanic.
 
-```{r false-negatives}
-df_kf_has_tag |>
-  filter(is.na(claude_tier)) |>
-  select(card = name, mechanic = kf_tag, kf_tier) |>
-  arrange(mechanic, card) |>
-  kable()
+::: {.panel-tabset}
+
+```{r false-negatives, results='asis'}
+df_fn <- df_tags |>
+  filter(is.na(tier_claude), !is.na(tier_kf)) %>%
+  arrange(card_name)
+
+for (mech in df_mechanics$category) {
+  cat(paste0("\n### ", mech, "\n\n"))
+  sub_df <- df_fn |> filter(category == mech) |> select(card_name, tier_kf)
+  if (nrow(sub_df) > 0) {
+    print(kable(sub_df, row.names = FALSE))
+  } else {
+    cat("*None*\n\n")
+  }
+}
 ```
+
+:::
 
 ## False Positives
 
-Cards Claude tagged that KF did not (among reviewed cards).
+Cards Claude tagged that KF did not, grouped by mechanic.
 
-```{r false-positives}
-df_compare |>
-  filter(!is.na(claude_tier), is.na(kf_tag)) |>
-  select(card = name, mechanic = kf_tag, claude_tier) |>
-  arrange(claude_tier, card) |>
-  kable()
+::: {.panel-tabset}
+
+```{r false-positives, results='asis'}
+df_fp <- df_tags |>
+  filter(!is.na(tier_claude), is.na(tier_kf)) %>%
+  arrange(card_name)
+
+for (mech in df_mechanics$category) {
+  cat(paste0("\n### ", mech, "\n\n"))
+  sub_df <- df_fp |> filter(category == mech) |> select(card_name, tier_claude)
+  if (nrow(sub_df) > 0) {
+    print(kable(sub_df, row.names = FALSE))
+  } else {
+    cat("*None*\n\n")
+  }
+}
 ```
+
+:::
+
+

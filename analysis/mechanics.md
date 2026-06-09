@@ -1,5 +1,5 @@
-- ramp: Accelerates your mana production (Birds of Paradise, Cultivate, Sol Ring, Dockside Extortionist). Includes treasures, rituals, and other effects which increase the amount of mana you have available.  Does not include mana fixing or untapping effects.
-- card_advantage: Net positive card advantage giving you access to more than one card (Harmonize, Rhystic Study, Mulldrifter).  Does not include cantrips, cycling, card selection, or tutors unless they provide net positive card advantage (i.e. they give you more than one card).
+- ramp: Increases your mana production above the curve by adding new mana sources or mana itself (Birds of Paradise, Cultivate, Sol Ring, Dockside Extortionist). Includes treasures, rituals, and other effects which increase the amount of mana you have available.  Does not include mana fixing or untapping effects.
+- card_advantage: Net positive card advantage giving you access to 1+ more cards than you spent to cast (Harmonize, Rhystic Study, Mulldrifter). Does not include cantrips, cycling, card selection, or tutors unless they provide net positive card advantage (i.e. they net you more cards than you spent)
 - targeted_disruption: A single card which removes or interacts with a single target opponent card (Path to Exile, Counterspell, Cyclonic Rift). Includes targeted removal, bounce spells, ability disruption, tap effects, and counterspells.
 - mass_disruption: A single card which affects multiple opponent cards or multiple opponents directly (Wrath of God, Cyclonic Rift, Rest in Peace). Includes mass removal, mass bounce, graveyard hate, and tap effects.
 - go_wide: Card supports a "go_wide" strategy by creating additional tokens or creates.
@@ -14,3 +14,4 @@
 - blink_flicker: temporarily removes a creature and returns it to the battlefield
 - mana_sink: abilities which convert extra mana into value
 - goad: force opponent's creatures to attack, preferably someone other than you
+- untap_effects: untap one or multiple cards

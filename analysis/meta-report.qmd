@@ -1,0 +1,95 @@
+---
+title: "Prompt / Model Comparison"
+format:
+  html:
+    embed-resources: true
+    code-fold: true
+editor: source
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library(tidyverse)
+library(jsonlite)
+library(DBI)
+library(knitr)
+
+query_postgres <- function(query, ...) {
+  con <- DBI::dbConnect(
+    RPostgres::Postgres(),
+    host     = Sys.getenv("DB_HOST"),
+    port     = as.integer(Sys.getenv("DB_PORT")),
+    user     = Sys.getenv("DB_USER"),
+    password = Sys.getenv("DB_PASSWORD"),
+    dbname   = "mtgcards"
+  )
+  df <- DBI::dbGetQuery(con, query, ...)
+  DBI::dbDisconnect(con)
+  tibble::tibble(df)
+}
+```
+
+```{r data}
+veggies <- c("ramp", "card_advantage", "targeted_disruption", "mass_disruption")
+
+# Pull all labeled data and KF ground truth in one shot each
+df_all_claude <- query_postgres("SELECT card_name, prompt_file, model, raw_json FROM public.labeled")
+
+df_kf <- query_postgres("SELECT card_name, kf FROM public.labeled_kf_final")
+df_kf_tags <- df_kf %>%
+  mutate(kf = map(as.character(kf), fromJSON)) %>%
+  unnest_longer(kf, indices_to = "category", values_to = "tier")
+kf_card_names <- unique(df_kf$card_name)
+
+# Unnest all Claude tags, keeping prompt_file + model
+df_all_tags <- df_all_claude %>%
+  mutate(raw_json = map(as.character(raw_json), fromJSON)) %>%
+  unnest_longer(raw_json, indices_to = "category", values_to = "tier") %>%
+  filter(category != "card_name") %>%
+  select(card_name, prompt_file, model, category, tier)
+
+# Compute metrics per combo
+results <- df_all_tags %>%
+  group_by(prompt_file, model) %>%
+  group_modify(function(df, keys) {
+    shared_cards <- intersect(unique(df$card_name), kf_card_names)
+
+    df_tags <- df %>%
+      filter(card_name %in% shared_cards) %>%
+      full_join(
+        df_kf_tags %>% filter(card_name %in% shared_cards),
+        by = c("card_name", "category"),
+        suffix = c("_claude", "_kf")
+      )
+
+    df_v <- df_tags %>% filter(category %in% veggies)
+
+    tibble(
+      n_cards          = length(shared_cards),
+      tag_acc_overall  = mean(is.na(df_tags$tier_kf) == is.na(df_tags$tier_claude)),
+      tag_acc_veggies  = mean(is.na(df_v$tier_kf)    == is.na(df_v$tier_claude)),
+      tier_acc_overall = mean(df_tags$tier_kf == df_tags$tier_claude, na.rm = TRUE),
+      tier_acc_veggies = mean(df_v$tier_kf    == df_v$tier_claude,    na.rm = TRUE)
+    )
+  }) %>%
+  ungroup() %>%
+  mutate(prompt = tools::file_path_sans_ext(basename(prompt_file)), .before = model) %>%
+  select(-prompt_file) %>%
+  arrange(prompt, model)
+```
+
+**Tag accuracy**: among all (card, mechanic) pairs where at least one of Claude or KF assigned a tag, what fraction did both agree on?
+**Tier accuracy**: among pairs where both agreed a mechanic applies, what fraction matched on tier?
+"Veggies" = ramp, card_advantage, targeted_disruption, mass_disruption.
+
+```{r table}
+results %>%
+  mutate(across(c(tag_acc_overall, tag_acc_veggies, tier_acc_overall, tier_acc_veggies),
+                ~ paste0(round(. * 100, 1), "%"))) %>%
+  kable(
+    col.names = c("Prompt", "Model", "Cards",
+                  "Tag Acc (Overall)", "Tag Acc (Veggies)",
+                  "Tier Acc (Overall)", "Tier Acc (Veggies)"),
+    align = c("l", "l", "r", "r", "r", "r", "r")
+  )
+```
