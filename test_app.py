@@ -21,7 +21,7 @@ def _make_app(env_key=""):
 def _mock_anthropic_response(text):
     """Create a mock Anthropic API response."""
     message = MagicMock()
-    message.content = [MagicMock(text=text)]
+    message.content = [MagicMock(type="text", text=text)]
     return message
 
 

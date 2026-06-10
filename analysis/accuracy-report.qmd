@@ -52,8 +52,8 @@ where prompt_file = $1
 ", params = list(prompt_file, model_filter)) 
 df_claude_tags <- df_claude %>% 
   mutate(raw_json = map(as.character(raw_json), fromJSON)) %>%
-  unnest_longer(raw_json, indices_to = "category", values_to = "tier") %>% 
-  filter(category != "card_name") %>% 
+  unnest_longer(raw_json, indices_to = "category", values_to = "tier") %>%
+  filter(!category %in% c("card_name", "low_confidence")) %>%
   select(card_name, category, tier)
 
 # --- Load KF ground-truth labels ---

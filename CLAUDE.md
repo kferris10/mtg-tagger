@@ -48,6 +48,7 @@ DB credentials (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`) are loaded from 
 | Script | Purpose |
 |---|---|
 | `analysis/analyze_batch.py` | Run a prompt/model combo against all `NOT_STARTED` cards; saves results to `public.labeled` and marks cards `COMPLETED` |
+| `analysis/analyze_batch_ensemble.py` | Majority-vote ensemble: runs the prompt N times per batch (default 3, temperature 1.0) and keeps only tags appearing in a majority of runs; saves to `public.labeled` under `<model>+ens<N>` so reports treat each ensemble config as its own combo |
 | `analysis/add_missing_cards.py` | Add cards from KF CSV that are missing from the queue (excludes lands via `KNOWN_LANDS`) |
 | `analysis/reset_cards.py` | Reset card status to `NOT_STARTED` (by name, `--from-csv`, or `--all`) |
 | `analysis/render_accuracy_report.R` | Render a parameterized Quarto accuracy report for a given prompt + model |
@@ -109,6 +110,10 @@ Rscript analysis/render_accuracy_report.R prompts/prompt2.md claude-opus-4-8
 ```
 
 Reports are self-contained HTML files saved to `analysis/`.
+
+### Prompt README
+
+`prompts/README.md` lists every prompt with a one-sentence description and its lineage (which prompt it was built from). **Always update this file when creating a new prompt.**
 
 ## Card Data Format
 
