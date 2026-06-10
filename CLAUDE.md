@@ -33,6 +33,88 @@ MTG Tagger is a Flask web app that uses the Anthropic API to analyze Magic: The 
 - **`oauth_manager.py`** — OAuth 2.0 manager. Routes `/login`, `/oauth/callback`, `/logout`, `/auth/status` exist in `app.py` but the OAuth flow is dormant; the app currently uses only the server-side `ANTHROPIC_API_KEY`.
 - **`test_app.py`** — pytest test suite. Note: some tests reflect an older design where users could provide their own API key; those tests may not match current behavior.
 
+## Batch Analysis Pipeline
+
+Scripts in `analysis/` test prompt/model combinations against a PostgreSQL database (`mtgcards`, `public` schema). Ground-truth labels live in `analysis/tags-labeled - KF.csv`.
+
+### Database tables
+- **`public.cards_to_analyze`** — card queue (`id`, `card_name`, `status`: `NOT_STARTED` / `COMPLETED`)
+- **`public.labeled`** — per-card results (`card_name`, `prompt_file`, `model`, `analyzed_at`, `raw_json` JSONB)
+
+DB credentials (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`) are loaded from `.env` via `python-dotenv`.
+
+### Key scripts
+
+| Script | Purpose |
+|---|---|
+| `analysis/analyze_batch.py` | Run a prompt/model combo against all `NOT_STARTED` cards; saves results to `public.labeled` and marks cards `COMPLETED` |
+| `analysis/analyze_batch_ensemble.py` | Majority-vote ensemble: runs the prompt N times per batch (default 3, temperature 1.0) and keeps only tags appearing in a majority of runs; saves to `public.labeled` under `<model>+ens<N>` so reports treat each ensemble config as its own combo |
+| `analysis/add_missing_cards.py` | Add cards from KF CSV that are missing from the queue (excludes lands via `KNOWN_LANDS`) |
+| `analysis/reset_cards.py` | Reset card status to `NOT_STARTED` (by name, `--from-csv`, or `--all`) |
+| `analysis/render_accuracy_report.R` | Render a parameterized Quarto accuracy report for a given prompt + model |
+
+### Analyze cards for a new prompt/model combo
+
+```bash
+# Analyze all NOT_STARTED cards
+uv run python analysis/analyze_batch.py --prompt prompts/prompt2.md --model claude-opus-4-8
+
+# Skip cards already labeled for this exact prompt+model (useful after partial runs)
+uv run python analysis/analyze_batch.py --prompt prompts/prompt2.md --model claude-opus-4-8 --skip-existing
+
+# If Claude returns non-JSON for a batch, retry with batch-size 1
+uv run python analysis/analyze_batch.py --prompt prompts/prompt2.md --model claude-opus-4-8 --skip-existing --batch-size 1
+```
+
+### Re-analyze all cards with a new prompt/model (reset → run)
+
+```bash
+# Reset all cards to NOT_STARTED
+uv run python analysis/reset_cards.py --all
+
+# Then run the new combo
+uv run python analysis/analyze_batch.py --prompt prompts/prompt2.md --model claude-sonnet-4-6
+```
+
+### Run the same cards through multiple combos
+
+Reset cards by name between each run so only those cards are re-queued:
+
+```bash
+uv run python analysis/reset_cards.py "Card Name 1" "Card Name 2" ...
+uv run python analysis/analyze_batch.py --prompt prompts/prompt.md --model claude-opus-4-8 --skip-existing
+# repeat reset + run for each combo
+```
+
+### Restore COMPLETED status after an accidental reset
+
+```sql
+-- Mark any card COMPLETED if it has at least one labeled result
+UPDATE public.cards_to_analyze c
+SET status = 'COMPLETED'
+WHERE EXISTS (SELECT 1 FROM public.labeled l WHERE l.card_name = c.card_name);
+```
+
+### Generate / regenerate accuracy reports
+
+```bash
+# Single report — output goes to analysis/accuracy-report-<prompt>-<model>.html
+Rscript analysis/render_accuracy_report.R prompts/prompt2.md claude-opus-4-8
+
+# All current combos
+Rscript analysis/render_accuracy_report.R prompts/prompt.md  claude-sonnet-4-20250514
+Rscript analysis/render_accuracy_report.R prompts/prompt.md  claude-sonnet-4-6
+Rscript analysis/render_accuracy_report.R prompts/prompt.md  claude-opus-4-8
+Rscript analysis/render_accuracy_report.R prompts/prompt2.md claude-sonnet-4-6
+Rscript analysis/render_accuracy_report.R prompts/prompt2.md claude-opus-4-8
+```
+
+Reports are self-contained HTML files saved to `analysis/`.
+
+### Prompt README
+
+`prompts/README.md` lists every prompt with a one-sentence description and its lineage (which prompt it was built from). **Always update this file when creating a new prompt.**
+
 ## Card Data Format
 
 Archidekt export format: `Name: card_name. Text: card_text` (one per line).

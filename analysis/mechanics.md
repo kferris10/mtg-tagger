@@ -1,16 +1,17 @@
-- ramp: Accelerates your mana production (Birds of Paradise, Cultivate, Sol Ring, Dockside Extortionist). Includes treasures, rituals, and other effects which increase the amount of mana you have available.  Does not include mana fixing or untapping effects.
-- card_advantage: Net positive card advantage giving you access to more than one card (Harmonize, Rhystic Study, Mulldrifter).  Does not include cantrips, cycling, card selection, or tutors unless they provide net positive card advantage (i.e. they give you more than one card).
+- ramp: Increases your mana production above the curve by adding new mana sources or mana itself (Birds of Paradise, Cultivate, Sol Ring, Dockside Extortionist). Includes treasures, rituals, and other effects which increase the amount of mana you have available.  Does not include mana fixing or untapping effects.
+- card_advantage: Net positive card advantage giving you access to 1+ more cards than you spent to cast (Harmonize, Rhystic Study, Mulldrifter). Does not include cantrips, cycling, card selection, or tutors unless they provide net positive card advantage (i.e. they net you more cards than you spent)
 - targeted_disruption: A single card which removes or interacts with a single target opponent card (Path to Exile, Counterspell, Cyclonic Rift). Includes targeted removal, bounce spells, ability disruption, tap effects, and counterspells.
 - mass_disruption: A single card which affects multiple opponent cards or multiple opponents directly (Wrath of God, Cyclonic Rift, Rest in Peace). Includes mass removal, mass bounce, graveyard hate, and tap effects.
-- go_wide: Card supports a "go_wide" strategy by creating additional tokens or creates.
-- anthem: increases toughness or power of all creatures in the commander deck.
-- overrun: Provides buffs to (multiple) creatures strength, power, evasivenss or ability to get through, enabling a large number of creatures to do a high level of damage
-- go_tall: Increase a single creature's power or toughness
-- equipment_tutor: search for equipment cards, stronger if the cards go directly onto the battlefield
-- cheat_equip_cost: allow equipment to be attached directly to a creature for free, reduced, or other bonus cost
-- get_through: trample, evasion, or other effects which allow a creature to get through defenders or otherwise discourage blocking
-- protection: indestructible, shroud, or other effects which protect a creature(s)
-- etb_effects: effects which provide value when the card enters the battlefield
-- blink_flicker: temporarily removes a creature and returns it to the battlefield
-- mana_sink: abilities which convert extra mana into value
-- goad: force opponent's creatures to attack, preferably someone other than you
+- go_wide: Creates multiple creature tokens or scales token production (Raise the Alarm, Avenger of Zendikar).
+- anthem: PERSISTENT static or triggered buff to power/toughness of multiple creatures you control (Glorious Anthem, tribal lords). Does NOT include one-turn combat bursts (see overrun).
+- overrun: ONE-SHOT combat burst granting power, toughness, or evasion to multiple creatures for one attack (Overrun, Craterhoof Behemoth). Distinguished from anthem by being temporary. 
+- go_tall: Permanently or persistently increases a SINGLE creature's power or toughness numbers (Blackblade Reforged, Bear Umbra, Tuvasa the Sunlit). Includes auras and equipment with a static +X/+X boost or scaling growth. Does NOT include type-wide buffs (see anthem). Does NOT include indestructible or hexproof — those are protection, not go_tall.
+- equipment_tutor: Searches for equipment cards (Stoneforge Mystic). Higher tier if the equipment enters the battlefield directly.
+- cheat_equip_cost: Attaches equipment for free or at reduced cost (Puresteel Paladin, Sigarda's Aid).
+- get_through: A creature has, or a card grants, evasion that allows dealing combat damage despite blockers: flying, trample, shadow, menace, intimidate, unblockable (Whispersilk Cloak, Trailblazer's Boots). Tag a creature if it NATURALLY has evasion as a meaningful function. Tag equipment/auras that grant evasion. Does NOT include: (a) go_wide cards whose tokens happen to have evasion — tag go_wide; (b) double strike or first strike — combat damage bonuses, not evasion; (c) anthem effects that buff flying creatures.
+- protection: means a permanent cannot be Damaged, Enchanted/equipped, Blocked, or Targeted by source(s) (Lightning Greaves, Darksteel Plate, Fleecemane Lion, Jareth Leonine Titan). This is about immunity from these effects. Does NOT include: (a) blink/flicker effects — Cloudshift, Ephemerate, Momentary Blink, and Whitemane Lion are blink_flicker, NOT protection; (b) first strike, vigilance, or trample.
+- etb_effects: An ETB (enters-the-battlefield) trigger that generates meaningful value (Mulldrifter draws cards, Acidic Slime destroys a permanent, Whitemane Lion returns a creature). Tag whenever the ETB provides meaningful value, even if that value is also captured by another mechanic — a creature that draws a card on ETB gets both etb_effects and card_advantage.
+- untap_effects: Untaps permanents to generate extra mana or enable repeated abilities (Seedborn Muse, Wilderness Reclamation). Higher tier for untapping multiple permanents or untapping on each opponent's turn.
+- blink_flicker: Temporarily exiles and returns a permanent to trigger ETB abilities (Conjurer's Closet, Ephemerate, Teleportation Circle).
+- mana_sink: a card or ability that allows you to repeatedly pour large amounts of unspent mana into it for a proportional advantage (Jazal Goldmane, Kemba Kha Enduring, Leafdrake Roost, Temur Sabertooth). The defining trait: extra mana always has a productive outlet.
+- goad: Forces opponent creatures to attack each combat, and goaded creatures cannot attack the goading player (Marisi Breaker of the Coil, Disrupt Decorum). Higher tier for multiple or repeatable goad.

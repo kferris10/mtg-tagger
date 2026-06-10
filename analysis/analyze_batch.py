@@ -39,16 +39,32 @@ CREATE TABLE IF NOT EXISTS public.labeled (
 """
 
 
+VALID_TABLES = ("cards_to_analyze", "cards_to_analyze2")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Batch MTG card analyzer")
     parser.add_argument("--prompt", required=True, help="Path to prompt template .md file")
     parser.add_argument("--mechanics", help="Path to mechanics .md file (default: app DEFAULT_MECHANICS)")
     parser.add_argument("--batch-size", type=int, default=20, help="Cards per API call (default: 20)")
     parser.add_argument("--model", default=claude_utils.DEFAULT_MODEL, help="Claude model to use")
+    parser.add_argument("--temperature", type=float, default=None, help="Sampling temperature (default: API default)")
+    parser.add_argument("--save-model", default=None, help="Override the model name stored in public.labeled (useful for labeling runs with non-default settings)")
     parser.add_argument(
         "--skip-existing",
         action="store_true",
         help="Skip cards that already have a result in public.labeled for this prompt file",
+    )
+    parser.add_argument(
+        "--table",
+        default="cards_to_analyze",
+        choices=VALID_TABLES,
+        help="Source table to read cards from (default: cards_to_analyze)",
+    )
+    parser.add_argument(
+        "--with-oracle-text",
+        action="store_true",
+        help="Include oracle_text from the source table in the card data sent to Claude",
     )
     return parser.parse_args()
 
@@ -61,35 +77,39 @@ def load_text_file(path: str, label: str) -> str:
         sys.exit(1)
 
 
-def fetch_cards(conn, prompt_file: str, skip_existing: bool) -> list[dict]:
+def fetch_cards(conn, prompt_file: str, model: str, skip_existing: bool, table: str = "cards_to_analyze", with_oracle_text: bool = False) -> list[dict]:
+    extra_col = ", oracle_text" if with_oracle_text else ""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         if skip_existing:
             cur.execute(
-                """
-                SELECT c.id, c.card_name
-                FROM public.cards_to_analyze c
+                f"""
+                SELECT c.id, c.card_name{extra_col}
+                FROM public.{table} c
                 WHERE c.status = 'NOT_STARTED'
                   AND NOT EXISTS (
                     SELECT 1 FROM public.labeled l
                     WHERE l.card_name = c.card_name
                       AND l.prompt_file = %s
+                      AND l.model = %s
                   )
                 ORDER BY c.id
                 """,
-                (prompt_file,),
+                (prompt_file, model),
             )
         else:
             cur.execute(
-                "SELECT id, card_name FROM public.cards_to_analyze WHERE status = 'NOT_STARTED' ORDER BY id"
+                f"SELECT id, card_name{extra_col} FROM public.{table} WHERE status = 'NOT_STARTED' ORDER BY id"
             )
         return cur.fetchall()
 
 
 def format_card_data(batch: list[dict]) -> str:
+    if batch and batch[0].get("oracle_text"):
+        return "\n".join(f"{row['card_name']} | {row['oracle_text']}" for row in batch)
     return "\n".join(row["card_name"] for row in batch)
 
 
-def save_results(conn, results: list, batch: list[dict], prompt_file: str, model: str):
+def save_results(conn, results: list, batch: list[dict], prompt_file: str, model: str, table: str = "cards_to_analyze"):
     batch_by_name = {row["card_name"].lower(): row["id"] for row in batch}
 
     with conn.cursor() as cur:
@@ -110,7 +130,7 @@ def save_results(conn, results: list, batch: list[dict], prompt_file: str, model
             card_id = batch_by_name.get(card_name.lower())
             if card_id is not None:
                 cur.execute(
-                    "UPDATE public.cards_to_analyze SET status = 'COMPLETED' WHERE id = %s",
+                    f"UPDATE public.{table} SET status = 'COMPLETED' WHERE id = %s",
                     (card_id,),
                 )
 
@@ -144,7 +164,8 @@ def main():
         cur.execute(CREATE_LABELED_TABLE)
     conn.commit()
 
-    cards = fetch_cards(conn, args.prompt, args.skip_existing)
+    save_model = args.save_model if args.save_model else args.model
+    cards = fetch_cards(conn, args.prompt, save_model, args.skip_existing, args.table, args.with_oracle_text)
     total = len(cards)
 
     if total == 0:
@@ -153,6 +174,8 @@ def main():
         return
 
     batches = [cards[i : i + args.batch_size] for i in range(0, total, args.batch_size)]
+    temp_str = f", temperature={args.temperature}" if args.temperature is not None else ""
+    print(f"Model: {args.model}{temp_str} -> saving as '{save_model}'")
     print(f"Analyzing {total} cards in {len(batches)} batches of up to {args.batch_size}.")
 
     processed = 0
@@ -162,7 +185,7 @@ def main():
         card_data = format_card_data(batch)
         prompt = claude_utils.build_prompt(prompt_template, card_data, mechanics)
 
-        result, error = claude_utils.call_claude(api_key, prompt, args.model)
+        result, error = claude_utils.call_claude(api_key, prompt, args.model, args.temperature)
 
         if error is not None:
             err_dict, status = error
@@ -175,7 +198,7 @@ def main():
             print(f"ERROR: expected JSON object or list, got {type(result).__name__} — skipping batch.")
             continue
 
-        save_results(conn, result, batch, args.prompt, args.model)
+        save_results(conn, result, batch, args.prompt, save_model, args.table)
         processed += len(result)
         print(f"done. ({processed}/{total} total saved)")
 
