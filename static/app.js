@@ -586,11 +586,18 @@ async function loadDefaultMechanics() {
         const res = await fetch('/api/default-mechanics');
         const data = await res.json();
         document.getElementById('mechanics').value = data.mechanics;
+        toggleAccessCodeField(!!data.access_code_required);
     } catch (e) {
         console.error('Failed to load default mechanics:', e);
         // Fallback: set a basic default in the textarea
         document.getElementById('mechanics').placeholder = STRINGS.mechanicsFallback;
+        toggleAccessCodeField(true); // fail open — never hide a field that might be required
     }
+}
+
+function toggleAccessCodeField(required) {
+    const field = document.getElementById("access-code-field");
+    if (field) field.style.display = required ? "" : "none";
 }
 
 // Default card list
@@ -683,3 +690,7 @@ if (savedCode) {
 
 document.getElementById("tab-table").addEventListener("click", () => switchView("table"));
 document.getElementById("tab-tierlist").addEventListener("click", () => switchView("tierlist"));
+
+document.getElementById("card-data").addEventListener("input", () => {
+    document.getElementById("sample-data-hint")?.remove();
+}, { once: true });

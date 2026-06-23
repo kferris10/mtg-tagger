@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MTG Tagger</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='16' fill='%231a1a2e'/><text x='50' y='68' font-size='58' text-anchor='middle' fill='%23c9a959' font-family='Georgia,serif' font-weight='bold'>M</text></svg>">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -12,21 +13,34 @@
             <h1>MTG Tagger</h1>
             <p class="subtitle">Analyze Magic: The Gathering cards for Commander mechanics and tier ratings</p>
 
-            <div class="field">
+            <div class="how-it-works" id="how-it-works">
+                <div class="how-step"><span class="step-num">1</span> Paste your deck or card list</div>
+                <div class="how-step"><span class="step-num">2</span> Pick which mechanics to tag (or use the defaults)</div>
+                <div class="how-step"><span class="step-num">3</span> Get a tier-ranked breakdown per card</div>
+            </div>
+
+            <div class="field" id="access-code-field" style="display:none;">
                 <label for="access-code">Access Code</label>
                 <input type="password" id="access-code" placeholder="Enter access code">
             </div>
 
-            <div class="field">
-                <label for="mechanics">
+            <details class="field mechanics-field" id="mechanics-details" open>
+                <summary>
                     Mechanics to Tag
                     <span class="optional-label">(edit or add your own)</span>
-                </label>
+                </summary>
                 <textarea id="mechanics" placeholder="- mechanic_name: Description..."></textarea>
-            </div>
+            </details>
 
             <div class="field">
-                <label for="card-data">Card Data</label>
+                <label for="card-data">
+                    Card Data
+                    <span class="optional-label" id="sample-data-hint">(showing example deck — replace with your own list)</span>
+                </label>
+                <details class="format-help">
+                    <summary>What format should I paste?</summary>
+                    <p>Paste a deck list or card names, one per line. Quantities are ignored.</p>
+                </details>
                 <textarea id="card-data"></textarea>
             </div>
 
@@ -50,6 +64,13 @@
             </div>
             <div class="results" id="results">
                 <h2>Results</h2>
+                <div class="tier-legend" id="tier-legend">
+                    <span class="badge badge-s">S+/S</span> format-defining / extremely powerful
+                    <span class="badge badge-a">A</span> very strong
+                    <span class="badge badge-b">B</span> solidly good
+                    <span class="badge badge-c">C</span> moderate
+                    <span class="badge badge-d">D</span> weak/marginal
+                </div>
                 <div id="results-filters"></div>
                 <div class="view-toggle-bar">
                     <button class="view-tab" id="tab-table" data-view="table">Table</button>

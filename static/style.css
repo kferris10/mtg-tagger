@@ -36,6 +36,32 @@ h1 {
     margin-bottom: 2rem;
     font-size: 0.9rem;
 }
+.how-it-works {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+.how-step {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: #ccc;
+}
+.step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    min-width: 1.4rem;
+    border-radius: 50%;
+    background: #16213e;
+    border: 1px solid #c9a959;
+    color: #c9a959;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
 label {
     display: block;
     font-weight: 600;
@@ -78,6 +104,35 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     font-weight: 400;
     font-style: italic;
 }
+
+.format-help {
+    margin-bottom: 0.5rem;
+}
+.format-help summary {
+    color: #888;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+.format-help summary::marker { color: #c9a959; }
+.format-help summary::-webkit-details-marker { color: #c9a959; }
+.format-help p {
+    color: #aaa;
+    font-size: 0.8rem;
+    margin-top: 0.5rem;
+    line-height: 1.4;
+}
+details.mechanics-field summary {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+    color: #e0e0e0;
+}
+details.mechanics-field summary::marker { color: #c9a959; }
+details.mechanics-field summary::-webkit-details-marker { color: #c9a959; }
+details.mechanics-field[open] summary { margin-bottom: 0.4rem; }
+details.mechanics-field textarea { margin-top: 0.4rem; }
 
 /* Loading bar */
 .loading-bar {
@@ -211,6 +266,16 @@ pre {
 .badge-b  { background: #1565c0; color: #fff; }
 .badge-c  { background: #555;    color: #ccc; }
 .badge-d  { background: #8b1a1a; color: #fff; }
+.tier-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.4rem;
+    margin-bottom: 1rem;
+    font-size: 0.8rem;
+    color: #888;
+}
+.tier-legend .badge { margin-right: 0; margin-bottom: 0; }
 .category-counts {
     display: flex;
     flex-wrap: wrap;
@@ -409,6 +474,7 @@ pre {
     .dashboard { grid-template-columns: 1fr; gap: 1.5rem; }
     .left-panel { position: static; }
     .category-counts { position: static; }
+    .how-it-works { flex-direction: column; gap: 0.5rem; }
     .error-toast { left: 1rem; right: 1rem; max-width: none; }
     .filter-header {
         flex-direction: column;

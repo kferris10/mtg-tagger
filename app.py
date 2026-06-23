@@ -59,7 +59,8 @@ def index():
 @app.route("/api/default-mechanics", methods=["GET"])
 def get_default_mechanics():
     """Return default mechanics for UI initialization."""
-    return jsonify({"mechanics": DEFAULT_MECHANICS})
+    access_required = bool(os.environ.get("ACCESS_PASSWORD", "").strip())
+    return jsonify({"mechanics": DEFAULT_MECHANICS, "access_code_required": access_required})
 
 
 @app.route("/analyze", methods=["POST"])
