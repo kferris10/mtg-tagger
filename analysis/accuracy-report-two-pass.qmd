@@ -1,0 +1,226 @@
+---
+title: "Two-Pass Accuracy Report"
+format:
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+editor: source
+params:
+  prompt_file: "prompts/prompt10.md"
+  feedback_prompt_file: "prompts/feedback_prompt.md"
+  model_filter: "claude-opus-4-8"
+---
+
+```{r setup, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+options(stringsAsFactors = FALSE, digits = 3)
+library(tidyverse)
+library(jsonlite)
+library(DBI)
+library(knitr)
+
+query_postgres <- function(query, ...) {
+  con <- DBI::dbConnect(
+    RPostgres::Postgres(),
+    host     = Sys.getenv("DB_HOST"),
+    port     = as.integer(Sys.getenv("DB_PORT")),
+    user     = Sys.getenv("DB_USER"),
+    password = Sys.getenv("DB_PASSWORD"),
+    dbname   = "mtgcards"
+  )
+  df <- DBI::dbGetQuery(con, query, ...)
+  DBI::dbDisconnect(con)
+  tibble::tibble(df)
+}
+```
+
+```{r data}
+prompt_file          <- params$prompt_file
+feedback_prompt_file <- params$feedback_prompt_file
+model_filter         <- params$model_filter
+veggies <- c("ramp", "card_advantage", "targeted_disruption", "mass_disruption")
+
+# --- Pull two-pass results ---
+df_raw <- query_postgres("
+  select card_name, raw_json_pass1, raw_json_final
+  from public.labeled_two_pass
+  where prompt_file = $1
+    and feedback_prompt_file = $2
+    and model = $3
+", params = list(prompt_file, feedback_prompt_file, model_filter))
+
+parse_tags <- function(df, json_col, pass_label) {
+  df %>%
+    select(card_name, raw_json = !!sym(json_col)) %>%
+    filter(!is.na(raw_json)) %>%
+    mutate(raw_json = map(as.character(raw_json), fromJSON)) %>%
+    unnest_longer(raw_json, indices_to = "category", values_to = "tier") %>%
+    filter(category != "card_name") %>%
+    select(card_name, category, tier) %>%
+    rename(!!paste0("tier_", pass_label) := tier)
+}
+
+df_pass1 <- parse_tags(df_raw, "raw_json_pass1", "pass1")
+df_final <- parse_tags(df_raw, "raw_json_final", "final")
+
+# --- Load KF ground-truth ---
+df_kf <- query_postgres("select card_name, kf from public.labeled_kf_final")
+df_kf_tags <- df_kf %>%
+  mutate(kf = map(as.character(kf), fromJSON)) %>%
+  unnest_longer(kf, indices_to = "category", values_to = "tier_kf")
+
+shared_cards <- intersect(df_raw$card_name, df_kf$card_name)
+
+# Three-way full join: one row per (card, category) pair seen by ANY source.
+# This correctly penalises false positives (Claude-only tags) alongside false negatives.
+all_pairs <- bind_rows(
+  df_kf_tags %>% filter(card_name %in% shared_cards) %>% select(card_name, category),
+  df_pass1   %>% filter(card_name %in% shared_cards) %>% select(card_name, category),
+  df_final   %>% filter(card_name %in% shared_cards) %>% select(card_name, category)
+) %>% distinct()
+
+df_tags <- all_pairs %>%
+  left_join(df_kf_tags %>% filter(card_name %in% shared_cards), by = c("card_name", "category")) %>%
+  left_join(df_pass1   %>% filter(card_name %in% shared_cards), by = c("card_name", "category")) %>%
+  left_join(df_final   %>% filter(card_name %in% shared_cards), by = c("card_name", "category"))
+
+df_tags_veggies <- df_tags %>% filter(category %in% veggies)
+
+df_mechanics <- df_tags %>% count(category, sort = TRUE)
+```
+
+## Overview
+
+Prompt: `r prompt_file` | Feedback: `r feedback_prompt_file` | Model: `r model_filter`
+
+Cards compared against KF ground truth: **`r length(shared_cards)`**
+
+**Mechanic detection accuracy** (did Claude tag the same mechanics as KF?):
+
+```{r overview-detection}
+tibble(
+  pass = c("Pass 1", "Final (Pass 2)"),
+  overall = c(
+    mean(is.na(df_tags$tier_kf) == is.na(df_tags$tier_pass1)),
+    mean(is.na(df_tags$tier_kf) == is.na(df_tags$tier_final))
+  ),
+  veggies_only = c(
+    mean(is.na(df_tags_veggies$tier_kf) == is.na(df_tags_veggies$tier_pass1)),
+    mean(is.na(df_tags_veggies$tier_kf) == is.na(df_tags_veggies$tier_final))
+  )
+) %>% kable(digits = 3)
+```
+
+**Tier accuracy** (among cards both KF and Claude tagged, how often did tiers agree?):
+
+```{r overview-tier}
+tibble(
+  pass = c("Pass 1", "Final (Pass 2)"),
+  overall = c(
+    mean(df_tags$tier_kf == df_tags$tier_pass1, na.rm = TRUE),
+    mean(df_tags$tier_kf == df_tags$tier_final, na.rm = TRUE)
+  ),
+  veggies_only = c(
+    mean(df_tags_veggies$tier_kf == df_tags_veggies$tier_pass1, na.rm = TRUE),
+    mean(df_tags_veggies$tier_kf == df_tags_veggies$tier_final, na.rm = TRUE)
+  )
+) %>% kable(digits = 3)
+```
+
+## Changes Made by Pass 2
+
+```{r changes}
+df_changed <- df_tags %>%
+  filter(!is.na(tier_pass1) | !is.na(tier_final)) %>%
+  filter(
+    coalesce(tier_pass1, "__NA__") != coalesce(tier_final, "__NA__")
+  ) %>%
+  select(card_name, category, tier_kf, tier_pass1, tier_final) %>%
+  arrange(category, card_name)
+
+cat(paste0("Pass 2 changed ", nrow(df_changed), " mechanic ratings across ", n_distinct(df_changed$card_name), " cards.\n"))
+
+df_changed %>% kable()
+```
+
+## Mechanic Detection Accuracy by Category
+
+```{r detection-by-category}
+df_tags %>%
+  group_by(category) %>%
+  summarise(
+    n_kf        = sum(!is.na(tier_kf)),
+    n_pass1     = sum(!is.na(tier_pass1)),
+    n_final     = sum(!is.na(tier_final)),
+    acc_pass1   = mean(!is.na(tier_kf) == !is.na(tier_pass1)),
+    acc_final   = mean(!is.na(tier_kf) == !is.na(tier_final))
+  ) %>%
+  arrange(desc(n_kf)) %>%
+  kable(digits = 3)
+```
+
+## Tier Accuracy by Category
+
+```{r tier-by-category}
+df_tags %>%
+  filter(!is.na(tier_kf)) %>%
+  group_by(category) %>%
+  summarise(
+    n           = n(),
+    tier_acc_pass1 = mean(tier_kf == tier_pass1, na.rm = TRUE),
+    tier_acc_final = mean(tier_kf == tier_final, na.rm = TRUE)
+  ) %>%
+  arrange(desc(n)) %>%
+  kable(digits = 3)
+```
+
+## False Negatives — Pass 1 vs Final
+
+Cards KF tagged that each pass missed, grouped by mechanic.
+
+::: {.panel-tabset}
+
+```{r false-negatives, results='asis'}
+df_fn_p1    <- df_tags %>% filter( is.na(tier_pass1), !is.na(tier_kf))
+df_fn_final <- df_tags %>% filter( is.na(tier_final), !is.na(tier_kf))
+
+for (mech in df_mechanics$category) {
+  cat(paste0("\n### ", mech, "\n\n"))
+  p1_sub    <- df_fn_p1    %>% filter(category == mech) %>% select(card_name, tier_kf) %>% rename(tier_kf_pass1 = tier_kf)
+  final_sub <- df_fn_final %>% filter(category == mech) %>% select(card_name, tier_kf) %>% rename(tier_kf_final = tier_kf)
+  combined  <- full_join(p1_sub, final_sub, by = "card_name") %>% arrange(card_name)
+  if (nrow(combined) > 0) {
+    print(kable(combined, row.names = FALSE))
+  } else {
+    cat("*None*\n\n")
+  }
+}
+```
+
+:::
+
+## False Positives — Pass 1 vs Final
+
+Cards each pass tagged that KF did not, grouped by mechanic.
+
+::: {.panel-tabset}
+
+```{r false-positives, results='asis'}
+df_fp_p1    <- df_tags %>% filter(!is.na(tier_pass1), is.na(tier_kf))
+df_fp_final <- df_tags %>% filter(!is.na(tier_final), is.na(tier_kf))
+
+for (mech in df_mechanics$category) {
+  cat(paste0("\n### ", mech, "\n\n"))
+  p1_sub    <- df_fp_p1    %>% filter(category == mech) %>% select(card_name, tier_pass1)
+  final_sub <- df_fp_final %>% filter(category == mech) %>% select(card_name, tier_final)
+  combined  <- full_join(p1_sub, final_sub, by = "card_name") %>% arrange(card_name)
+  if (nrow(combined) > 0) {
+    print(kable(combined, row.names = FALSE))
+  } else {
+    cat("*None*\n\n")
+  }
+}
+```
+
+:::

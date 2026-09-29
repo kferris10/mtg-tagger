@@ -15,4 +15,7 @@
 | prompt11.md | Adds D-Tier tier anchor examples for minor effects; uses oracle text input format. | prompt10.md |
 | prompt12.md | Updated mechanics definitions from mechanics.md; explicit overlapping-tag guidance; etb_effects now tagged alongside other mechanics rather than suppressed by them. | prompt9.md |
 | prompt13.md | Visible recall: model writes a one-line oracle-text summary per card before the JSON (output in a fenced block); UNKNOWN/low_confidence escape hatch instead of guessing; get_through tags every natural flyer; mass_disruption includes forced-combat effects; ramp/untap verify rule; concrete etb_effects value list. | prompt12.md |
+| prompt14.md | Accuracy-first variant: adds explicit one-shot / accuracy-over-speed framing before instructions; otherwise identical to prompt9. | prompt9.md |
+| prompt15.md | Accuracy-first variant: adds explicit one-shot / accuracy-over-speed framing before instructions; otherwise identical to prompt13. | prompt13.md |
+| prompt13-app.md | Live-app variant of prompt13: re-adds MECHANICS_PLACEHOLDER (in place of the hardcoded mechanics list) so the web UI's mechanics-customization field still works; otherwise identical to prompt13. | prompt13.md |
 | feedback.md | Second-pass review prompt: takes initial ratings + oracle text and checks for missed mechanics, false positives, tier calibration errors, exclusion violations, and minor disruption omissions. | prompt11.md |

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MTG Tagger is a Flask web app that uses the Anthropic API to analyze Magic: The Gathering cards for Commander format mechanics and tier ratings. Users submit card data through a web UI; the server calls Claude with a prompt template (`prompt.md`) that defines the mechanics taxonomy and tier system, then returns a JSON result rendered as a sortable table.
+MTG Tagger is a Flask web app that uses the Anthropic API to analyze Magic: The Gathering cards for Commander format mechanics and tier ratings. Users submit card data through a web UI; the server calls Claude with a prompt template (`prompts/prompt13-app.md` by default) that defines the mechanics taxonomy and tier system, then returns a JSON result rendered as a sortable table / tier list.
 
 ## Commands
 
@@ -25,11 +25,11 @@ MTG Tagger is a Flask web app that uses the Anthropic API to analyze Magic: The 
 
 ## Architecture
 
-**Request flow:** Browser → `POST /analyze` → substitute card data + mechanics into `prompt.md` → Anthropic API → parse JSON response → return to UI → render sortable table.
+**Request flow:** Browser → `POST /analyze` → substitute card data + mechanics into the prompt template → Anthropic API → extract JSON from the response (tolerating recall-line prose before the fenced block) → return to UI → render sortable table / tier list.
 
-- **`app.py`** — Flask app. `GET /` serves the UI. `POST /analyze` validates the access code (if `ACCESS_PASSWORD` is set), reads the server-side `ANTHROPIC_API_KEY`, substitutes `CARD_LIST_PLACEHOLDER` and `MECHANICS_PLACEHOLDER` in `prompt.md`, calls the Anthropic API (`claude-sonnet-4-20250514`, max 4096 tokens), strips any markdown code fences from the response, parses JSON, and returns `{"result": ...}`. Input is capped at 50,000 characters. `GET /api/default-mechanics` returns the built-in mechanics definitions for UI initialization.
-- **`prompt.md`** — Prompt template with two placeholders: `CARD_LIST_PLACEHOLDER` (card list) and `MECHANICS_PLACEHOLDER` (mechanic definitions). Defines the tier system (S+ through D-Tier) and analysis instructions.
-- **`templates/index.html`** — Single-page UI with inline CSS/JS. Fetches `/api/default-mechanics` on load, submits card data + optional access code + optional custom mechanics to `/analyze`, and renders a sortable results table with a card detail panel.
+- **`app.py`** — Flask app. `GET /` serves the UI. `POST /analyze` validates the access code (if `ACCESS_PASSWORD` is set), reads the server-side `ANTHROPIC_API_KEY`, substitutes `CARD_LIST_PLACEHOLDER` and `MECHANICS_PLACEHOLDER` into the active prompt template (default `prompts/prompt13-app.md`; overridable per-request via `prompt_file` or `prompt_template`), calls the Anthropic API via `claude_utils.call_claude`, parses the JSON result (see `claude_utils.parse_claude_response`), and returns `{"result": ...}`. Input is capped at 50,000 characters. `GET /api/default-mechanics` returns the built-in mechanics definitions for UI initialization.
+- **`prompts/prompt13-app.md`** — Default live-app prompt template, forked from `prompts/prompt13.md` (see `prompts/README.md` for full lineage). Has two placeholders: `CARD_LIST_PLACEHOLDER` (card list) and `MECHANICS_PLACEHOLDER` (mechanic definitions, re-added on top of prompt13 so the UI's mechanics textarea still works). Defines the tier system (S+ through D-Tier), a "visible recall" step where the model writes a one-line oracle-text summary per card before tagging, and an `UNKNOWN` / `"low_confidence": "true"` escape hatch for cards the model can't confidently recall — used instead of guessing at tags. `prompts/prompt13.md` (no `MECHANICS_PLACEHOLDER`, hardcoded taxonomy) is the offline-tested original, used by the `analysis/` batch pipeline.
+- **`templates/index.html`** / **`static/app.js`** — Single-page UI. Fetches `/api/default-mechanics` on load, submits card data + optional access code + optional custom mechanics to `/analyze`, and renders results as a sortable table or tier list with a card detail panel. Cards flagged `low_confidence` by the prompt are shown with a distinct "Low Confidence" badge/section (table, tier list, and card detail) rather than being folded into the normal tier grouping or the "no mechanics tagged" count.
 - **`oauth_manager.py`** — OAuth 2.0 manager. Routes `/login`, `/oauth/callback`, `/logout`, `/auth/status` exist in `app.py` but the OAuth flow is dormant; the app currently uses only the server-side `ANTHROPIC_API_KEY`.
 - **`test_app.py`** — pytest test suite. Note: some tests reflect an older design where users could provide their own API key; those tests may not match current behavior.
 

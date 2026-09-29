@@ -32,6 +32,9 @@ query_postgres <- function(query, ...) {
 ```{r data}
 veggies <- c("ramp", "card_advantage", "targeted_disruption", "mass_disruption")
 
+# labeled data
+df_kf <- query_postgres("SELECT card_name, kf FROM public.labeled_kf_final")
+
 # Single-pass results
 df_single <- query_postgres("SELECT card_name, prompt_file, model, raw_json FROM public.labeled")
 
@@ -64,15 +67,9 @@ df_two_pass_final <- df_two_pass_raw %>%
     raw_json = raw_json_final
   )
 
+# combine all claude results into a single dataset
 df_all_claude <- bind_rows(df_single, df_two_pass_p1, df_two_pass_final) %>%
   filter(basename(prompt_file) == "prompt.md" | coalesce(as.integer(str_extract(basename(prompt_file), "\\d+")), 0L) >= 8)
-
-df_kf <- query_postgres("SELECT card_name, kf FROM public.labeled_kf_final")
-df_kf_tags <- df_kf %>%
-  mutate(kf = map(as.character(kf), fromJSON)) %>%
-  unnest_longer(kf, indices_to = "category", values_to = "tier")
-kf_card_names <- unique(df_kf$card_name)
-
 # Unnest all Claude tags, keeping prompt_file + model
 df_all_tags <- df_all_claude %>%
   mutate(raw_json = map(as.character(raw_json), fromJSON)) %>%
@@ -80,58 +77,46 @@ df_all_tags <- df_all_claude %>%
   filter(!category %in% c("card_name", "low_confidence")) %>%
   select(card_name, prompt_file, model, category, tier)
 
-# Cards present in every single-pass combo AND in KF labels — fixed baseline for all comparisons.
-# Two-pass combos are excluded here so a smaller two-pass run doesn't shrink the baseline.
-universal_card_sets <- df_all_tags %>%
-  filter(!str_detect(model, "\\[p1\\]|\\[final\\]")) %>%
-  group_by(prompt_file, model) %>%
-  summarise(cards = list(unique(card_name)), .groups = "drop") %>%
-  pull(cards)
-# Intersect all single-pass card sets to get a common baseline; fall back to kf_card_names
-# if the intersection is empty (e.g., a partial/test run used a different card set).
-universal_cards <- if (length(universal_card_sets) == 0) {
-  kf_card_names
-} else {
-  candidate <- reduce(universal_card_sets, intersect) %>% intersect(kf_card_names)
-  if (length(candidate) == 0) kf_card_names else candidate
-}
+# unnest all KF tags
+df_kf_tags <- df_kf %>%
+  mutate(kf = map(as.character(kf), fromJSON)) %>%
+  unnest_longer(kf, indices_to = "category", values_to = "tier")
 
-# Compute metrics per combo
-results <- df_all_tags %>%
-  group_by(prompt_file, model) %>%
-  group_modify(function(df, keys) {
-    shared_cards <- intersect(unique(df$card_name), universal_cards)
+# list of valid cards to analyze
+df_card_names <- df_all_claude %>% 
+  select(card_name, prompt_file, model) %>% 
+  distinct() %>% 
+  count(card_name) %>% 
+  filter(n == max(n), 
+         card_name %in% df_kf$card_name) %>% 
+  select(-n)
 
-    df_tags <- df %>%
-      filter(card_name %in% shared_cards) %>%
-      full_join(
-        df_kf_tags %>% filter(card_name %in% shared_cards),
-        by = c("card_name", "category"),
-        suffix = c("_claude", "_kf")
-      ) 
-
-    df_v <- df_tags %>% filter(category %in% veggies)
-
-    tibble(
-      n_cards          = length(shared_cards),
-      tag_acc_overall  = mean(is.na(df_tags$tier_kf) == is.na(df_tags$tier_claude)),
-      tag_acc_veggies  = mean(is.na(df_v$tier_kf)    == is.na(df_v$tier_claude)),
-      tier_acc_overall = mean(df_tags$tier_kf == df_tags$tier_claude, na.rm = TRUE),
-      tier_acc_veggies = mean(df_v$tier_kf    == df_v$tier_claude,    na.rm = TRUE)
-    )
-  }) %>%
-  ungroup() %>%
-  mutate(prompt = tools::file_path_sans_ext(basename(prompt_file)), .before = model) %>%
-  select(-prompt_file) %>%
-  arrange(prompt, model)
+# dataset with KF and Claude tags in one place
+df_compare <- df_card_names %>% 
+  left_join(df_kf_tags, by = "card_name") %>% 
+  full_join(df_all_tags %>% filter(card_name %in% df_card_names$card_name), 
+            by = c("card_name", "category"), 
+            suffix = c("_kf", "_claude")) %>% 
+  select(card_name, prompt_file, model, category, tier_kf, tier_claude)
 ```
+
 
 **Tag accuracy**: among all (card, mechanic) pairs where at least one of Claude or KF assigned a tag, what fraction did both agree on?
 **Tier accuracy**: among pairs where both agreed a mechanic applies, what fraction matched on tier?
 "Veggies" = ramp, card_advantage, targeted_disruption, mass_disruption.
 
 ```{r table}
-results %>%
+df_compare %>% 
+  mutate(is_veggie = category %in% veggies) %>% 
+  group_by(prompt_file, model) %>% 
+  summarise(
+      n_cards          = n_distinct(card_name),
+      tag_acc_overall  = mean(is.na(tier_kf) == is.na(tier_claude)),
+      tag_acc_veggies  = mean(is.na(tier_kf[is_veggie])    == is.na(tier_claude[is_veggie])),
+      tier_acc_overall = mean(tier_kf == tier_claude, na.rm = TRUE),
+      tier_acc_veggies = mean(tier_kf[is_veggie] == tier_claude[is_veggie], na.rm = TRUE), 
+      .groups = "drop"
+  ) %>% 
   mutate(across(c(tag_acc_overall, tag_acc_veggies, tier_acc_overall, tier_acc_veggies),
                 ~ paste0(round(. * 100, 1), "%"))) %>%
   kable(
