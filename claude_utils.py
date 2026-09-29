@@ -52,7 +52,7 @@ def parse_claude_response(raw_text: str):
         return raw_text
 
 
-DEFAULT_MODEL = "claude-opus-4-8"
+DEFAULT_MODEL = "claude-sonnet-5-5"
 
 
 def call_claude(api_key: str, prompt: str, model: str = DEFAULT_MODEL, temperature: float = None, system: str = None):
@@ -65,12 +65,13 @@ def call_claude(api_key: str, prompt: str, model: str = DEFAULT_MODEL, temperatu
     """
     try:
         client = anthropic.Anthropic(api_key=api_key)
-        kwargs = dict(model=model, max_tokens=16000, messages=[{"role": "user", "content": prompt}])
+        kwargs = dict(model=model, max_tokens=32000, messages=[{"role": "user", "content": prompt}])
         if temperature is not None:
             kwargs["temperature"] = temperature
         if system is not None:
             kwargs["system"] = system
-        message = client.messages.create(**kwargs)
+        with client.messages.stream(**kwargs) as stream:
+            message = stream.get_final_message()
         text_block = next((b for b in message.content if b.type == "text"), None)
         if text_block is None:
             return None, ({"error": f"No text block in response (blocks: {[b.type for b in message.content]})"}, 502)

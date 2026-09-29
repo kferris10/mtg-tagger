@@ -9,6 +9,9 @@ const STRINGS = {
     noCardsMatch:     "No cards match your filters",
     clearAllFilters:  "Clear all filters",
     noTaggedCount:    (n) => `${n} card${n === 1 ? '' : 's'} had no tagged mechanics`,
+    lowConfidenceBadgeTitle: "Low confidence: the model could not confidently recall this card's text",
+    lowConfidenceSectionLabel: "Unknown / Low Confidence",
+    lowConfidenceDetailWarning: "⚠ Low confidence — the model could not confidently recall this card's text. Treat these tags with caution.",
     selectCard:       "Select a card...",
     tierListNoMatch:  "No cards match your filters",
     validationNoCards: "Please enter card data.",
@@ -44,6 +47,8 @@ let lastResult = null;
 let currentView = "tierlist";
 let lastRows = [];
 let noMechCountGlobal = 0;
+let unknownCardsGlobal = [];
+let lowConfidenceCardsGlobal = new Set();
 let renderTableFn = null;
 let renderFiltersFn = null;
 const scryfallCache = {};
@@ -86,6 +91,14 @@ function applyFilters(rows) {
         // Combine with AND logic between filter types
         return mechMatch && tierMatch && searchMatch;
     });
+}
+
+function filterUnknownCards(names) {
+    // Unknown/low-confidence cards have no mechanic tags, so a mechanic or tier
+    // filter can never match them.
+    if (filterState.mechanics.size > 0 || filterState.tiers.size > 0) return [];
+    if (filterState.searchText === "") return names;
+    return names.filter(name => name.toLowerCase().includes(filterState.searchText.toLowerCase()));
 }
 
 function clearAllFilters() {
@@ -137,12 +150,17 @@ function formatMechanicLabel(mechKey) {
 function renderCardDetail(cardName) {
     const mechanics = lastResult[cardName];
     if (!mechanics) { cardRatings.innerHTML = ""; return; }
-    const entries = Object.entries(mechanics);
+    const entries = Object.entries(mechanics).filter(([mech]) => mech !== "low_confidence");
+
+    let html = "";
+    if (lowConfidenceCardsGlobal.has(cardName)) {
+        html += `<p class="low-confidence-warning">${STRINGS.lowConfidenceDetailWarning}</p>`;
+    }
     if (entries.length === 0) {
-        cardRatings.innerHTML = `<p class="card-no-mechanics">${STRINGS.noMechanics}</p>`;
+        html += `<p class="card-no-mechanics">${STRINGS.noMechanics}</p>`;
+        cardRatings.innerHTML = html;
         return;
     }
-    let html = "";
     for (const [mech, tier] of entries) {
         const label = formatMechanicLabel(mech);
         const cls = tierBadgeClass(tier);
@@ -213,10 +231,19 @@ function renderResults(data) {
     // Build flat rows array
     const rows = [];
     let noMechCount = 0;
+    const unknownOnlyCards = [];
+    const lowConfidenceCards = new Set();
     for (const [cardName, mechanics] of Object.entries(result)) {
-        const mechEntries = Object.entries(mechanics);
+        const isLowConfidence = mechanics && Object.prototype.hasOwnProperty.call(mechanics, "low_confidence");
+        if (isLowConfidence) lowConfidenceCards.add(cardName);
+
+        const mechEntries = Object.entries(mechanics).filter(([mech]) => mech !== "low_confidence");
         if (mechEntries.length === 0) {
-            noMechCount++;
+            if (isLowConfidence) {
+                unknownOnlyCards.push(cardName);
+            } else {
+                noMechCount++;
+            }
         } else {
             for (const [mech, tier] of mechEntries) {
                 rows.push({
@@ -224,13 +251,16 @@ function renderResults(data) {
                     mechanic: mech,
                     mechanicLabel: formatMechanicLabel(mech),
                     tier: tier,
-                    tierRankVal: tierRank(tier)
+                    tierRankVal: tierRank(tier),
+                    lowConfidence: isLowConfidence
                 });
             }
         }
     }
     lastRows = rows;
     noMechCountGlobal = noMechCount;
+    unknownCardsGlobal = unknownOnlyCards;
+    lowConfidenceCardsGlobal = lowConfidenceCards;
 
     // Category counts with mechanic key mapping
     const counts = {};
@@ -289,6 +319,7 @@ function renderResults(data) {
 
     function renderTable() {
         const filteredRows = applyFilters(rows);
+        const filteredUnknown = filterUnknownCards(unknownOnlyCards);
         filteredRows.sort((a, b) => {
             let cmp = 0;
             if (sortCol === "card") {
@@ -306,7 +337,7 @@ function renderResults(data) {
         const thMech = `Mechanic${sortCol === "mechanic" ? ' <span class="sort-arrow">' + arrow + '</span>' : ''}`;
         const thTier = `Tier${sortCol === "tier" ? ' <span class="sort-arrow">' + arrow + '</span>' : ''}`;
 
-        if (filteredRows.length === 0 && hasActiveFilters()) {
+        if (filteredRows.length === 0 && filteredUnknown.length === 0 && hasActiveFilters()) {
             resultsTable.innerHTML = `<div class="empty-filter-state"><p>${STRINGS.noCardsMatch}</p><button id="clear-filters-empty">${STRINGS.clearAllFilters}</button></div>`;
             const clearEmptyBtn = document.getElementById("clear-filters-empty");
             if (clearEmptyBtn) {
@@ -326,11 +357,21 @@ function renderResults(data) {
         html += '</tr></thead><tbody>';
         for (const row of filteredRows) {
             const cls = tierBadgeClass(row.tier);
-            html += `<tr><td>${esc(row.card)}</td><td>${esc(row.mechanicLabel)}</td><td><span class="badge ${cls}">${esc(row.tier)}</span></td></tr>`;
+            const warn = row.lowConfidence
+                ? ` <span class="badge badge-unknown" title="${esc(STRINGS.lowConfidenceBadgeTitle)}">?</span>`
+                : '';
+            html += `<tr><td>${esc(row.card)}${warn}</td><td>${esc(row.mechanicLabel)}</td><td><span class="badge ${cls}">${esc(row.tier)}</span></td></tr>`;
         }
         html += '</tbody></table>';
         if (noMechCount > 0) {
             html += `<p class="muted">${STRINGS.noTaggedCount(noMechCount)}</p>`;
+        }
+        if (filteredUnknown.length > 0) {
+            html += `<div class="unknown-section"><p class="unknown-heading">${STRINGS.lowConfidenceSectionLabel} (${filteredUnknown.length})</p><ul class="unknown-list">`;
+            for (const name of filteredUnknown) {
+                html += `<li>${esc(name)} <span class="badge badge-unknown" title="${esc(STRINGS.lowConfidenceBadgeTitle)}">?</span></li>`;
+            }
+            html += `</ul></div>`;
         }
 
         resultsTable.innerHTML = html;
@@ -450,8 +491,9 @@ function renderTierList() {
 
     const tierListEl = document.getElementById("results-tierlist");
     const filteredRows = applyFilters(lastRows);
+    const filteredUnknown = filterUnknownCards(unknownCardsGlobal);
 
-    if (filteredRows.length === 0 && hasActiveFilters()) {
+    if (filteredRows.length === 0 && filteredUnknown.length === 0 && hasActiveFilters()) {
         tierListEl.innerHTML = `<div class="empty-filter-state"><p>${STRINGS.tierListNoMatch}</p></div>`;
         return;
     }
@@ -472,14 +514,31 @@ function renderTierList() {
         html += `<div class="tier-row-tiles">`;
         tierRows.forEach((row, i) => {
             const escapedName = esc(row.card);
+            const warn = row.lowConfidence
+                ? ` <span class="badge badge-unknown" title="${esc(STRINGS.lowConfidenceBadgeTitle)}">?</span>`
+                : '';
             html += `<div class="card-tile" id="tile-${td.rank}-${i}">`;
             html += `<div class="card-tile-art" data-card="${escapedName}">`;
             html += `<div class="tile-spinner"></div>`;
             html += `</div>`;
-            html += `<div class="card-tile-name">${escapedName}</div>`;
+            html += `<div class="card-tile-name">${escapedName}${warn}</div>`;
             html += `<div class="card-tile-mechanic">${esc(row.mechanicLabel)}</div>`;
             html += `</div>`;
         });
+        html += `</div></div>`;
+    }
+    if (filteredUnknown.length > 0) {
+        html += `<div class="tier-row unknown-row">`;
+        html += `<div class="tier-row-label badge-unknown" title="${esc(STRINGS.lowConfidenceBadgeTitle)}">?</div>`;
+        html += `<div class="tier-row-tiles">`;
+        for (const name of filteredUnknown) {
+            const escapedName = esc(name);
+            html += `<div class="card-tile">`;
+            html += `<div class="card-tile-art" data-card="${escapedName}"><div class="tile-spinner"></div></div>`;
+            html += `<div class="card-tile-name">${escapedName}</div>`;
+            html += `<div class="card-tile-mechanic">${esc(STRINGS.lowConfidenceSectionLabel)}</div>`;
+            html += `</div>`;
+        }
         html += `</div></div>`;
     }
     if (noMechCountGlobal > 0) {
@@ -490,10 +549,10 @@ function renderTierList() {
 
     // Fetch art crops — unique card names from visible tiles
     const seen = new Set();
-    for (const row of filteredRows) {
-        if (seen.has(row.card)) continue;
-        seen.add(row.card);
-        const cardName = row.card;
+    const artCardNames = filteredRows.map(row => row.card).concat(filteredUnknown);
+    for (const cardName of artCardNames) {
+        if (seen.has(cardName)) continue;
+        seen.add(cardName);
         fetchArtCrop(cardName).then(artUrl => {
             const escapedName = esc(cardName);
             const artEls = tierListEl.querySelectorAll(`[data-card="${escapedName}"]`);

@@ -266,6 +266,7 @@ pre {
 .badge-b  { background: #1565c0; color: #fff; }
 .badge-c  { background: #555;    color: #ccc; }
 .badge-d  { background: #8b1a1a; color: #fff; }
+.badge-unknown { background: #b8860b; color: #fff; }
 .tier-legend {
     display: flex;
     flex-wrap: wrap;
@@ -297,6 +298,21 @@ pre {
     color: #c9a959;
 }
 .muted { color: #666; font-style: italic; font-size: 0.9rem; }
+
+/* Unknown / low-confidence cards */
+.unknown-section { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #333; }
+.unknown-heading { color: #b8860b; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; }
+.unknown-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.unknown-list li { color: #ccc; font-size: 0.9rem; }
+.low-confidence-warning {
+    background: #3a2f10;
+    border: 1px solid #b8860b;
+    color: #e0b84d;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+    margin-bottom: 0.75rem;
+}
 
 /* Filter controls */
 .filter-header {
@@ -445,7 +461,9 @@ pre {
                   justify-content: center; font-size: 1.1rem; font-weight: 800;
                   color: #fff; flex-shrink: 0; border-radius: 0; }
 .tier-row-label.badge-s, .tier-row-label.badge-a, .tier-row-label.badge-b,
-.tier-row-label.badge-c, .tier-row-label.badge-d { border-radius: 0; padding: 0; }
+.tier-row-label.badge-c, .tier-row-label.badge-d,
+.tier-row-label.badge-unknown { border-radius: 0; padding: 0; }
+.unknown-row { border-style: dashed; }
 .tier-row-tiles { display: flex; flex-wrap: wrap; gap: 0.5rem;
                   padding: 0.5rem; background: #16213e; flex: 1;
                   align-content: flex-start; }
