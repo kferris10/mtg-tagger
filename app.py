@@ -25,7 +25,7 @@ app.register_blueprint(oauth_bp)
 
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 
-prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "prompt13-app.md")
+prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "prompt12-app.md")
 with open(prompt_path) as f:
     PROMPT_TEMPLATE = f.read()
 

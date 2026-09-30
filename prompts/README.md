@@ -17,5 +17,6 @@
 | prompt13.md | Visible recall: model writes a one-line oracle-text summary per card before the JSON (output in a fenced block); UNKNOWN/low_confidence escape hatch instead of guessing; get_through tags every natural flyer; mass_disruption includes forced-combat effects; ramp/untap verify rule; concrete etb_effects value list. | prompt12.md |
 | prompt14.md | Accuracy-first variant: adds explicit one-shot / accuracy-over-speed framing before instructions; otherwise identical to prompt9. | prompt9.md |
 | prompt15.md | Accuracy-first variant: adds explicit one-shot / accuracy-over-speed framing before instructions; otherwise identical to prompt13. | prompt13.md |
+| prompt12-app.md | Live-app variant of prompt12: requires every input card to appear in the output (lands and untagged cards get {}; quantity prefixes stripped from keys); otherwise identical to prompt12. | prompt12.md |
 | prompt13-app.md | Live-app variant of prompt13: re-adds MECHANICS_PLACEHOLDER (in place of the hardcoded mechanics list) so the web UI's mechanics-customization field still works; otherwise identical to prompt13. | prompt13.md |
 | feedback.md | Second-pass review prompt: takes initial ratings + oracle text and checks for missed mechanics, false positives, tier calibration errors, exclusion violations, and minor disruption omissions. | prompt11.md |
